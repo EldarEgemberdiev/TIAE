@@ -1,0 +1,1664 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Seed-Spreader Drone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Saira+Semi+Condensed:wght@500;700&display=swap">
+<style>
+body{margin:0}
+
+/* Layout: field-ops console. 3D viewport with flight HUD on the left, mission rail on the right, spec sheet below. */
+:root{
+  --bg:#ECEEE6; --panel:#FAFBF6; --line:#D2D7C9; --fg:#1C2219; --muted:#5B6554;
+  --accent:#D88A1C; --accent-text:#9A5A00; --accent-soft:#F6E6CC; --grow:#3F7D31; --warn:#C9472B; --info:#3D6FB5;
+  --hud-bg:rgba(14,18,16,.74); --hud-fg:#EEF2EA; --hud-muted:#A8B2A2; --hud-line:rgba(255,255,255,.14);
+  --f-display:'Saira Semi Condensed','Arial Narrow',sans-serif;
+  --f-body:'IBM Plex Sans',system-ui,-apple-system,sans-serif;
+  --f-mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121610; --panel:#1A1F17; --line:#2E3629; --fg:#E5E9DE; --muted:#97A18E;
+    --accent:#F0A43A; --accent-text:#F4B65E; --accent-soft:#3A2C16; --grow:#79B864; --warn:#E5694C; --info:#7FA6E0; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121610; --panel:#1A1F17; --line:#2E3629; --fg:#E5E9DE; --muted:#97A18E;
+  --accent:#F0A43A; --accent-text:#F4B65E; --accent-soft:#3A2C16; --grow:#79B864; --warn:#E5694C; --info:#7FA6E0; color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 var(--f-body)}
+.wrap{max-width:1280px;margin:0 auto;padding-inline:20px;padding-block:24px 48px;display:grid;gap:22px}
+.top{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:18px}
+.top > div{min-width:0;max-width:68ch}
+.eyebrow{margin:0 0 4px;font:500 11.5px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{margin:0;font:700 clamp(30px,4.4vw,46px)/1.02 var(--f-display);letter-spacing:-.01em;text-wrap:balance}
+.lede{margin:10px 0 0;color:var(--muted)}
+.lede b{color:var(--accent-text);font-weight:600}
+.tabs{display:inline-flex;border:1px solid var(--line);border-radius:8px;padding:3px;background:var(--panel)}
+.tab{font:600 14px var(--f-body);color:var(--muted);background:none;border:0;border-radius:6px;padding:8px 14px;cursor:pointer}
+.tab.on{background:var(--fg);color:var(--bg)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:16px;align-items:start}
+@media (max-width:920px){.stage{grid-template-columns:minmax(0,1fr)}}
+.viewport{position:relative;height:clamp(420px,70vh,740px);max-width:100%;border-radius:10px;overflow:hidden;background:#cfdde6;border:1px solid var(--line)}
+.viewport canvas{display:block;width:100%;height:100%;touch-action:none}
+#labels{position:absolute;inset:0;pointer-events:none}
+.lbl{position:absolute;left:0;top:0;font:500 11px/1.2 var(--f-mono);padding:4px 7px;border-radius:4px;background:var(--panel);border:1px solid var(--line);color:var(--fg);white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.lbl.new{border-color:var(--accent);color:var(--accent-text)}
+.lbl i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;background:var(--muted);vertical-align:0}
+.lbl.new i{background:var(--accent)}
+
+.hud{position:absolute;left:10px;top:10px;max-width:calc(100% - 20px);width:300px;background:var(--hud-bg);color:var(--hud-fg);border-radius:8px;padding:10px 12px;font:12px/1.35 var(--f-mono);display:grid;gap:8px;backdrop-filter:blur(3px)}
+.hud-status{display:flex;align-items:center;gap:8px;font-weight:500}
+.dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--hud-muted)}
+.dot[data-s="seed"]{background:#F0A43A}.dot[data-s="move"]{background:#7FB2F0}.dot[data-s="rtl"]{background:#F06A4C}.dot[data-s="pad"]{background:#E9D25A}.dot[data-s="done"]{background:#7CC768}
+.hud-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 10px;font-variant-numeric:tabular-nums}
+.hud-grid span{display:block;color:var(--hud-muted);font-size:10px;letter-spacing:.06em}
+.hud-grid b{font-weight:500;font-size:13px}
+.hud-grid b.warn{color:#F6A27A}
+.hud-wind{display:flex;align-items:center;gap:8px;color:var(--hud-muted);border-top:1px solid var(--hud-line);padding-top:7px}
+.hud-wind svg{flex:none}
+.fleet{display:flex;gap:6px;flex-wrap:wrap}
+.fleet button{font:500 11px var(--f-mono);display:flex;align-items:center;gap:6px;color:var(--hud-fg);background:transparent;border:1px solid var(--hud-line);border-radius:999px;padding:3px 9px;cursor:pointer}
+.fleet button.on{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.4)}
+.vbar{position:absolute;display:flex;gap:8px;flex-wrap:wrap;pointer-events:none}
+.vbar > *{pointer-events:auto}
+.vbar.bl{left:10px;bottom:10px}
+.vbar.tr{right:10px;top:10px;justify-content:flex-end}
+@media (max-width:700px){
+  .hud{width:auto;right:10px;font-size:11px;padding:8px 10px;gap:6px}
+  .vbar.tr{top:auto;bottom:52px;left:10px;right:auto;justify-content:flex-start}
+  .legend-v{bottom:96px}
+}
+.vseg{display:inline-flex;background:var(--hud-bg);border-radius:7px;overflow:hidden;backdrop-filter:blur(3px)}
+.vseg button{font:500 12px var(--f-mono);color:var(--hud-muted);background:none;border:0;padding:7px 10px;cursor:pointer}
+.vseg button.on{color:#1C1406;background:#F0A43A}
+.legend-v{position:absolute;right:10px;bottom:10px;background:var(--hud-bg);color:var(--hud-fg);border-radius:7px;padding:8px 10px;font:11px/1.6 var(--f-mono);display:grid;gap:1px}
+.legend-v span{display:flex;align-items:center;gap:7px}
+.legend-v i{width:11px;height:11px;border-radius:2px;flex:none}
+.hint{position:absolute;right:12px;bottom:10px;margin:0;font:12px var(--f-mono);color:#33402F;background:rgba(255,255,255,.6);padding:3px 8px;border-radius:5px}
+
+.rail{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:grid;gap:16px;min-width:0}
+.rail h2{margin:0;font:700 17px var(--f-display);letter-spacing:.01em}
+.rail h3{margin:0;font:500 10.5px var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.group{display:grid;gap:12px}
+.sub{display:grid;gap:9px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.btn{font:600 14px var(--f-body);border-radius:7px;border:1px solid var(--line);background:var(--bg);color:var(--fg);padding:8px 14px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#1C1406}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.wide{width:100%}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{font:500 13px var(--f-mono);border:0;background:var(--bg);color:var(--muted);padding:7px 10px;cursor:pointer}
+.seg button.on{background:var(--fg);color:var(--bg)}
+.seg button:disabled{opacity:.5;cursor:not-allowed}
+.ctl{display:grid;gap:3px}
+.ctl label{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--muted)}
+.ctl output{font:500 13px var(--f-mono);color:var(--fg);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+input[type=range]:disabled{opacity:.4}
+.small{margin:0;font-size:12.5px;color:var(--muted)}
+.check{display:flex;align-items:flex-start;gap:9px;font-size:14px;cursor:pointer}
+.check input{accent-color:var(--accent);width:16px;height:16px;margin-top:2px;flex:none}
+.check small{display:block;color:var(--muted);font-size:12px}
+.legend{display:grid;gap:6px;font-size:13px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:8px}
+.sw{width:12px;height:12px;border-radius:3px;background:var(--accent)}
+.sw.k{background:#C9CDC4}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:10px 14px;margin:0}
+.stats div{min-width:0}
+.stats dt{font:500 10.5px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.stats dd{margin:2px 0 0;font:600 18px var(--f-display);font-variant-numeric:tabular-nums}
+.stats dd small{font:500 12px var(--f-mono);color:var(--muted)}
+hr{border:0;border-top:1px solid var(--line);margin:0}
+.report{border:1px solid var(--accent);background:var(--accent-soft);border-radius:8px;padding:12px;display:grid;gap:8px}
+.report h3{color:var(--accent-text)}
+.report table{min-width:0;font-size:13px}
+.report td{padding:4px 0;border:0}
+.report td:last-child{text-align:right;font:500 13px var(--f-mono);font-variant-numeric:tabular-nums}
+
+.sheet{display:grid;gap:12px}
+.sheet h2{margin:0;font:700 22px var(--f-display)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:14px}
+.tablewrap table{min-width:680px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px var(--f-mono);letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.tablewrap tr:last-child td{border-bottom:0}
+.tag{display:inline-block;font:500 11px var(--f-mono);padding:2px 7px;border-radius:4px;background:var(--accent-soft);color:var(--accent-text);white-space:nowrap}
+.tag.k{background:var(--bg);color:var(--muted)}
+.how{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px 22px;margin:0;padding:0;list-style:none}
+.how li{min-width:0;font-size:14px;color:var(--muted)}
+.how b{display:block;color:var(--fg);font-weight:600;margin-bottom:2px}
+.notes{font-size:13px;color:var(--muted);max-width:90ch;margin:0}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <p class="eyebrow">Smart agriculture · concept model</p>
+      <h1>Seed-Spreader Drone</h1>
+      <p class="lede">A standard spraying hexacopter with four added parts: a <b>seed hopper</b>, a <b>metering gate</b>, a <b>spinner disc</b> and a <b>border deflector</b>. After the rice harvest, the same drone re-seeds the paddy with a cover crop.</p>
+    </div>
+    <div class="tabs" role="tablist">
+      <button class="tab on" id="tab-model" role="tab" aria-selected="true">3D model</button>
+      <button class="tab" id="tab-sim" role="tab" aria-selected="false">Seeding mission</button>
+    </div>
+  </header>
+
+  <main class="stage">
+    <div class="viewport" id="vp">
+      <canvas id="c" aria-label="3D view of the seed-spreader drone"></canvas>
+      <div id="labels"></div>
+
+      <div class="hud" id="hud" hidden>
+        <div class="hud-status"><span class="dot" id="h-dot"></span><span id="h-status">Ready on pad</span></div>
+        <div class="hud-grid">
+          <div><span>ALT</span><b id="h-alt">0.0 m</b></div>
+          <div><span>SPEED</span><b id="h-spd">0.0 m/s</b></div>
+          <div><span>BATTERY</span><b id="h-bat">100%</b></div>
+          <div><span>HOPPER</span><b id="h-hop">25.0 kg</b></div>
+          <div><span>GATE</span><b id="h-gate">0%</b></div>
+          <div><span>GPS</span><b id="h-gps">RTK FIX</b></div>
+        </div>
+        <div class="hud-wind">
+          <svg width="22" height="22" viewBox="-11 -11 22 22" aria-hidden="true"><circle r="10" fill="none" stroke="currentColor" stroke-opacity=".35"/><text y="-4.5" text-anchor="middle" font-size="5.5" fill="currentColor">N</text><g id="h-arrow"><path d="M0 7 L0 -6 M-3 -2.5 L0 -6 L3 -2.5" stroke="#F0A43A" stroke-width="1.8" fill="none" stroke-linecap="round"/></g></svg>
+          <span id="h-wind">Wind 2.0 m/s from NW</span>
+        </div>
+        <div class="fleet" id="fleet" hidden></div>
+      </div>
+
+      <div class="vbar tr">
+        <div class="vseg" id="ov" aria-label="Map overlay" hidden>
+          <button data-o="none" class="on">Field</button><button data-o="rx">Rx map</button><button data-o="cov">Coverage</button>
+        </div>
+        <div class="vseg" id="light" aria-label="Time of day">
+          <button data-l="day" class="on">Midday</button><button data-l="eve">Evening</button>
+        </div>
+        <div class="vseg"><button id="snd" aria-pressed="false">Sound off</button></div>
+      </div>
+      <div class="vbar bl" id="bar-cam" hidden>
+        <div class="vseg" id="cam" aria-label="Camera">
+          <button data-c="orbit" class="on">Orbit</button><button data-c="chase">Chase</button><button data-c="fpv">FPV</button><button data-c="top">Top</button>
+        </div>
+      </div>
+      <div class="legend-v" id="lg-cov" hidden>
+        <span><i style="background:#CD3C2D"></i>Under 60%</span>
+        <span><i style="background:#E8A23A"></i>60–85%</span>
+        <span><i style="background:#4FA04A"></i>On target</span>
+        <span><i style="background:#3C6ED2"></i>Over 115%</span>
+      </div>
+      <div class="legend-v" id="lg-rx" hidden>
+        <span><i style="background:#D65C34"></i>Weak soil · +25%</span>
+        <span><i style="background:#E7C350"></i>Standard rate</span>
+        <span><i style="background:#46965A"></i>Strong soil · −20%</span>
+      </div>
+      <p class="hint" id="hint">Drag to rotate · scroll or pinch to zoom</p>
+    </div>
+
+    <aside class="rail">
+      <section id="panel-model" class="group">
+        <h2>Model view</h2>
+        <label class="check"><input type="checkbox" id="opt-labels" checked> Show part labels</label>
+        <label class="check"><input type="checkbox" id="opt-explode"> Exploded view</label>
+        <label class="check"><input type="checkbox" id="opt-highlight" checked> Highlight added parts</label>
+        <label class="check"><input type="checkbox" id="opt-run" checked> Run the seeder</label>
+        <div class="ctl">
+          <label for="fill">Seed in hopper <output id="o-fill">18 kg</output></label>
+          <input type="range" id="fill" min="0" max="25" step="1" value="18">
+        </div>
+        <hr>
+        <div class="legend">
+          <span><i class="sw"></i>Added for seeding</span>
+          <span><i class="sw k"></i>Stock spray drone (kept)</span>
+        </div>
+        <p class="small">Seed falls by gravity from the hopper, through the metering gate, onto the spinner disc, which throws it out to the sides. The spray tank stays, so one drone does both jobs.</p>
+      </section>
+
+      <section id="panel-sim" class="group" hidden>
+        <h2>Re-seed a harvested paddy</h2>
+        <div class="row">
+          <button class="btn primary" id="play">Start</button>
+          <button class="btn" id="reset">Reset</button>
+          <div class="seg" id="mult" aria-label="Simulation speed">
+            <button data-m="1">1×</button><button data-m="5" class="on">5×</button><button data-m="20">20×</button><button data-m="50">50×</button>
+          </div>
+        </div>
+
+        <div class="sub">
+          <h3>Fleet and flight plan</h3>
+          <div class="row" style="justify-content:space-between">
+            <span class="small">Drones</span>
+            <div class="seg" id="fleetsel" aria-label="Number of drones"><button data-n="1" class="on">1</button><button data-n="2">2</button><button data-n="3">3</button></div>
+          </div>
+          <div class="ctl">
+            <label for="speed">Flight speed <output id="o-speed">5 m/s</output></label>
+            <input type="range" id="speed" min="2" max="8" step="0.5" value="5">
+          </div>
+          <div class="ctl">
+            <label for="swath">Lane spacing <output id="o-swath">5 m</output></label>
+            <input type="range" id="swath" min="3" max="8" step="0.5" value="5">
+          </div>
+          <div class="ctl">
+            <label for="rate">Seed rate <output id="o-rate">80 kg/ha</output></label>
+            <input type="range" id="rate" min="30" max="150" step="5" value="80">
+          </div>
+          <p class="small" id="plan-line">12 lanes, 5.0 m apart</p>
+        </div>
+
+        <div class="sub">
+          <h3>Wind</h3>
+          <div class="ctl">
+            <label for="wind">Wind speed <output id="o-wind">2 m/s</output></label>
+            <input type="range" id="wind" min="0" max="8" step="0.5" value="2">
+          </div>
+          <div class="ctl">
+            <label for="windfrom">Blowing from <output id="o-windfrom">NW</output></label>
+            <input type="range" id="windfrom" min="0" max="345" step="15" value="315">
+          </div>
+        </div>
+
+        <div class="sub">
+          <h3>Smart features</h3>
+          <label class="check"><input type="checkbox" id="opt-vr" checked><span>Variable-rate seeding<small>More seed on weak soil, less on strong soil</small></span></label>
+          <label class="check"><input type="checkbox" id="opt-comp" checked><span>Wind compensation<small>Flies upwind of each lane so seed lands on target</small></span></label>
+          <label class="check"><input type="checkbox" id="opt-defl" checked><span>Border deflector<small>Stops seed landing in the bund or water channel</small></span></label>
+        </div>
+        <p class="small">Drones and lane spacing lock during a mission. Reset to change them. Wind, speed, rate and smart features change live.</p>
+        <hr>
+        <dl class="stats">
+          <div><dt>Field seeded</dt><dd id="st-cov">0%</dd></div>
+          <div><dt>Area treated</dt><dd id="st-area">0.00 ha</dd></div>
+          <div><dt>Seed dropped</dt><dd id="st-used">0.0 kg</dd></div>
+          <div><dt>Lost off-field</dt><dd id="st-lost">0.0 kg</dd></div>
+          <div><dt>Mission time</dt><dd id="st-time">0:00</dd></div>
+          <div><dt>Work rate</dt><dd id="st-rate">–</dd></div>
+          <div><dt>Refills</dt><dd id="st-ref">0</dd></div>
+          <div><dt>Battery swaps</dt><dd id="st-swap">0</dd></div>
+        </dl>
+        <section class="report" id="report" hidden>
+          <h3>Mission report</h3>
+          <table><tbody id="report-body"></tbody></table>
+        </section>
+        <button class="btn wide" id="grow" disabled>Fast-forward 3 weeks</button>
+        <p class="small" id="grow-note" hidden>Thin patches show where seed landed short. Switch on the Coverage overlay to compare.</p>
+      </section>
+    </aside>
+  </main>
+
+  <section class="sheet">
+    <h2>What changed from a stock spray drone</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Part</th><th>Status</th><th>What it does</th><th>3D-print note</th></tr></thead>
+        <tbody>
+          <tr><td>Seed hopper</td><td><span class="tag">Added</span></td><td>Holds 25 kg of seed on top of the frame. The see-through wall shows the fill level.</td><td>Print in two halves and join at the rim.</td></tr>
+          <tr><td>Metering gate</td><td><span class="tag">Added</span></td><td>Servo-driven slot under the hopper. It opens wider when the drone flies faster or the map asks for a higher rate, so seed per hectare stays on target.</td><td>One piece with a side pocket for a micro servo.</td></tr>
+          <tr><td>Spinner disc</td><td><span class="tag">Added</span></td><td>A small motor spins a four-vane disc that throws seed up to one lane width to each side. Neighbouring lanes overlap to even out the spread.</td><td>Print flat.</td></tr>
+          <tr><td>Border deflector</td><td><span class="tag">Added</span></td><td>A curved shield that swings to the field-edge side on the outer lanes, so seed stays out of the bund and the irrigation channel.</td><td>Thin arc. Clips onto the disc motor mount.</td></tr>
+          <tr><td>Spray tank and nozzles</td><td><span class="tag k">Kept</span></td><td>Still sprays liquid, so one drone covers crop protection and re-seeding.</td><td>Use the base model.</td></tr>
+          <tr><td>Frame, 6 rotors, RTK GPS</td><td><span class="tag k">Kept</span></td><td>Flies the same centimetre-accurate lanes for both jobs.</td><td>Use the base model.</td></tr>
+          <tr><td>Terrain radar and FPV camera</td><td><span class="tag k">Kept</span></td><td>Hold a steady 3 m height over the stubble and give the pilot a live view.</td><td>Use the base model.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h2>How the mission simulation works</h2>
+    <ul class="how">
+      <li><b>Spread pattern</b>Each pass throws seed up to one lane width to each side, thickest in the middle. Neighbouring passes overlap so the total comes out even.</li>
+      <li><b>Wind drift</b>Seed takes about 0.7 s to fall from 3 m, so wind carries it sideways. With compensation on, the drone shifts upwind to cancel the drift.</li>
+      <li><b>Variable rate</b>A soil prescription map splits the paddy into three zones. The gate opens wider over weak soil and narrower over strong soil.</li>
+      <li><b>Battery and refills</b>The battery drains faster with a full hopper. The drone returns when it runs out of seed or when it has just enough charge to get back, and the ground crew refills and swaps batteries at the pad.</li>
+    </ul>
+    <p class="notes">Assumptions: 100 × 60 m paddy (0.6 ha), 25 kg hopper, 0.6 kg/s maximum gate flow, about 8 minutes of flight with a full hopper and 13 minutes empty, 10 s refill and 8 s battery swap, 3 m working height. Manual comparison assumes one worker hand-broadcasting about 0.3 ha per hour. These are estimates for the class MOC, not measured data.</p>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/Sky.js"></script>
+<script>
+(function(){
+const $ = id => document.getElementById(id);
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const V3 = THREE.Vector3;
+const lin = hex => new THREE.Color(hex).convertSRGBToLinear();
+
+// ---------- constants ----------
+const FX = 100, FZ = 60, HX = 50, HZ = 30, PPM = 10, CX = 100, CZ = 60, NC = CX * CZ;
+const CAP = 25, WORK_ALT = 3, PAD_Y = 0.95, TRANSIT = 8, ACC = 2.5, VZ = 2;
+const MAX_FLOW = 0.6, REFILL_T = 10, SWAP_T = 8, DISC_DROP = 0.75, G = 9.8;
+const ACCENT = 0xE89A2C, STOCK = 0xD3D7D0;
+const PADS = [{x:-58, z:21}, {x:-58, z:14}, {x:-58, z:7}];
+const AREA_HA = FX * FZ / 1e4;
+const P = {speed:5, sw:5, rate:80, mult:5, wind:2, windFrom:315, n:1, vr:true, comp:true, defl:true, fill:18, run:true};
+
+// ---------- renderer / scene ----------
+const vp = $('vp'), canvas = $('c');
+const renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.75));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.62;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xC6D6E2, 90, 560);
+const camera = new THREE.PerspectiveCamera(42, 1, 0.05, 2000);
+camera.position.set(3.6, 3.0, 4.4);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.minDistance = 1.6;
+controls.maxDistance = 220;
+controls.target.set(0, 1.7, 0);
+
+// physical sky, plus a copy used to light reflective materials
+const sky = new THREE.Sky(); sky.scale.setScalar(1000); scene.add(sky);
+const envScene = new THREE.Scene(); const envSky = new THREE.Sky(); envSky.scale.setScalar(1000); envScene.add(envSky);
+const pmrem = new THREE.PMREMGenerator(renderer);
+let envRT = null;
+const sunDir = new V3();
+
+const hemi = new THREE.HemisphereLight(0xDCE8FF, 0x6B5A3E, 0.55);
+scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xFFF4E2, 2.4);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.bias = -0.0003;
+sun.shadow.normalBias = 0.02;
+sun.shadow.camera.near = 1; sun.shadow.camera.far = 420;
+scene.add(sun, sun.target);
+let shadowSize = 0;
+function shadowFocus(c, size){
+  sun.target.position.copy(c);
+  sun.position.copy(c).addScaledVector(sunDir, 180);
+  if (Math.abs(size - shadowSize) > 0.5){
+    const cam = sun.shadow.camera; cam.left = cam.bottom = -size; cam.right = cam.top = size; cam.updateProjectionMatrix(); shadowSize = size;
+  }
+}
+
+// ---------- canvas texture helpers ----------
+function canvasTex(w, h, draw, opts){
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  if (!opts || opts.color !== false) t.encoding = THREE.sRGBEncoding;
+  if (opts && opts.repeat){ t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(opts.repeat[0], opts.repeat[1]); }
+  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
+  return t;
+}
+function speckle(x, w, h, base, specks, density){
+  x.fillStyle = base; x.fillRect(0, 0, w, h);
+  for (let i = 0; i < 40; i++){
+    const px = Math.random() * w, py = Math.random() * h, r = w * (0.05 + Math.random() * 0.15);
+    const g = x.createRadialGradient(px, py, 0, px, py, r);
+    g.addColorStop(0, specks[i % specks.length]); g.addColorStop(1, 'rgba(0,0,0,0)');
+    x.fillStyle = g; x.fillRect(px - r, py - r, r * 2, r * 2);
+  }
+  for (let i = 0; i < w * h * density; i++){
+    x.fillStyle = specks[i % specks.length];
+    x.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 2);
+  }
+}
+const softDot = canvasTex(64, 64, (x, w) => {
+  const g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+  g.addColorStop(0, 'rgba(255,255,255,1)'); g.addColorStop(0.4, 'rgba(255,255,255,.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+  x.fillStyle = g; x.fillRect(0, 0, w, w);
+});
+const roundDot = canvasTex(32, 32, x => { x.fillStyle = '#fff'; x.beginPath(); x.arc(16, 16, 14, 0, 7); x.fill(); });
+
+// ---------- ground ----------
+const grass = new THREE.Mesh(new THREE.PlaneGeometry(1400, 1400), new THREE.MeshStandardMaterial({roughness:1,
+  map: canvasTex(512, 512, (x, w, h) => speckle(x, w, h, '#76854A', ['rgba(52,70,30,.35)', 'rgba(176,164,96,.32)', 'rgba(110,122,60,.4)', 'rgba(150,118,70,.25)'], 0.25), {repeat:[140, 140]})}));
+grass.rotation.x = -Math.PI / 2; grass.position.y = -0.04; grass.receiveShadow = true;
+scene.add(grass);
+
+const road = new THREE.Mesh(new THREE.PlaneGeometry(14, 140), new THREE.MeshStandardMaterial({roughness:1,
+  map: canvasTex(256, 256, (x, w, h) => speckle(x, w, h, '#A49B87', ['rgba(80,72,60,.4)', 'rgba(212,202,182,.45)', 'rgba(120,110,92,.35)'], 0.5), {repeat:[2, 20]})}));
+road.rotation.x = -Math.PI / 2; road.position.set(-59, -0.02, 0); road.receiveShadow = true;
+scene.add(road);
+
+// paddy field texture
+const fc = document.createElement('canvas'); fc.width = FX * PPM; fc.height = FZ * PPM;
+const fx = fc.getContext('2d');
+const baseField = document.createElement('canvas'); baseField.width = fc.width; baseField.height = fc.height;
+(function drawBaseField(){
+  const b = baseField.getContext('2d'), W = baseField.width, H = baseField.height;
+  b.fillStyle = '#76604A'; b.fillRect(0, 0, W, H);
+  for (let i = 0; i < 240; i++){
+    const x = Math.random() * W, y = Math.random() * H, r = 20 + Math.random() * 100;
+    const g = b.createRadialGradient(x, y, 0, x, y, r);
+    const tone = Math.random() < .55 ? '56,40,26' : '150,124,92';
+    g.addColorStop(0, `rgba(${tone},.2)`); g.addColorStop(1, `rgba(${tone},0)`);
+    b.fillStyle = g; b.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  for (let i = 0; i < 50000; i++){
+    b.fillStyle = Math.random() < .5 ? 'rgba(46,32,20,.28)' : 'rgba(176,148,108,.22)';
+    b.fillRect(Math.random() * W, Math.random() * H, 1.5, 1.5);
+  }
+  for (let z = 3; z < FZ; z += 5.5){
+    [-0.9, 0.9].forEach(o => {
+      b.fillStyle = 'rgba(36,26,16,.2)'; b.fillRect(0, (z + o) * PPM - 3, W, 6);
+      for (let x = 0; x < W; x += 4){ b.fillStyle = 'rgba(30,20,12,.18)'; b.fillRect(x, (z + o) * PPM - 3, 2, 6); }
+    });
+  }
+  for (let y = 1.5; y < H; y += 3){
+    for (let x = Math.random() * 2; x < W; x += 2.2 + Math.random() * 0.8){
+      b.fillStyle = Math.random() < .7 ? 'rgba(200,174,114,.7)' : 'rgba(160,134,84,.75)';
+      b.fillRect(x, y + (Math.random() - .5), 1.5, 1.5);
+    }
+  }
+  b.lineWidth = 1;
+  for (let i = 0; i < 2600; i++){
+    const x = Math.random() * W, y = Math.random() * H, a = Math.random() * Math.PI, l = 3 + Math.random() * 7;
+    b.strokeStyle = Math.random() < .7 ? 'rgba(224,202,146,.6)' : 'rgba(180,156,104,.6)';
+    b.beginPath(); b.moveTo(x, y); b.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); b.stroke();
+  }
+})();
+const fieldTex = new THREE.CanvasTexture(fc);
+fieldTex.encoding = THREE.sRGBEncoding;
+fieldTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+const bumpTex = new THREE.CanvasTexture(baseField);
+const fieldGeo = new THREE.PlaneGeometry(FX, FZ); fieldGeo.rotateX(-Math.PI / 2);
+const field = new THREE.Mesh(fieldGeo, new THREE.MeshStandardMaterial({map:fieldTex, bumpMap:bumpTex, bumpScale:0.35, roughness:0.96, metalness:0}));
+field.receiveShadow = true;
+scene.add(field);
+
+// 3D rice stubble: one cut hill every 30 × 45 cm, drawn as crossed cards of cut stalks
+(function stubble(){
+  const tex = canvasTex(64, 64, (x, w, h) => {
+    for (let k = 0; k < 16; k++){
+      const bx = 32 + (Math.random() - .5) * 14, tx = bx + (Math.random() - .5) * 26, ty = h * (0.05 + Math.random() * 0.35);
+      const g = x.createLinearGradient(0, h, 0, ty);
+      g.addColorStop(0, '#5E4A30'); g.addColorStop(0.5, '#B89A62'); g.addColorStop(1, '#D9C08A');
+      x.strokeStyle = g; x.lineWidth = 2 + Math.random() * 1.6; x.lineCap = 'butt';
+      x.beginPath(); x.moveTo(bx, h); x.lineTo(tx, ty); x.stroke();
+    }
+  });
+  const pos = [], uv = [], nrm = [], s_ = 0.11, hgt = 0.2;
+  [[1, 0], [0, 1]].forEach(([dx, dz]) => {
+    const q = [[-s_, 0, 0, 0], [s_, 0, 1, 0], [s_, hgt, 1, 1], [-s_, 0, 0, 0], [s_, hgt, 1, 1], [-s_, hgt, 0, 1]];
+    [q, q.slice().reverse()].forEach(tris => tris.forEach(([a, y, u, v]) => { pos.push(a * dx, y, a * dz); uv.push(u, v); nrm.push(0, 1, 0); }));
+  });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  const pts = [];
+  for (let z = -HZ + 0.2; z < HZ - 0.1; z += 0.3) for (let x = -HX + 0.25; x < HX - 0.1; x += 0.45) pts.push([x + (Math.random() - .5) * 0.08, z + (Math.random() - .5) * 0.05]);
+  const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({color:0xFFFFFF, map:tex, alphaTest:0.45}), pts.length);
+  const o = new THREE.Object3D(), col = new THREE.Color();
+  pts.forEach(([x, z], i) => {
+    o.position.set(x, 0, z); o.rotation.set((Math.random() - .5) * 0.25, Math.random() * 6, (Math.random() - .5) * 0.25);
+    const sc = 0.8 + Math.random() * 0.5; o.scale.set(sc, 0.7 + Math.random() * 0.6, sc); o.updateMatrix(); m.setMatrixAt(i, o.matrix);
+    m.setColorAt(i, col.setHSL(0.1, 0.12, 0.82 + Math.random() * 0.18).convertSRGBToLinear());
+  });
+  m.receiveShadow = true;
+  scene.add(m);
+})();
+
+// overlays (prescription map, coverage)
+const ovCanvas = document.createElement('canvas'); ovCanvas.width = CX; ovCanvas.height = CZ;
+const ox = ovCanvas.getContext('2d');
+const ovTex = new THREE.CanvasTexture(ovCanvas); ovTex.encoding = THREE.sRGBEncoding;
+const overlay = new THREE.Mesh(fieldGeo, new THREE.MeshBasicMaterial({map: ovTex, transparent:true, depthWrite:false, toneMapped:false}));
+overlay.position.y = 0.17; overlay.visible = false; overlay.renderOrder = 2;
+scene.add(overlay);
+
+// bunds with grass tufts
+const bundMat = new THREE.MeshStandardMaterial({color:0x7A8650, roughness:1});
+[[0, -HZ - 0.5, FX + 2, 1], [0, HZ + 0.5, FX + 2, 1], [-HX - 0.5, 0, 1, FZ], [HX + 0.5, 0, 1, FZ]].forEach(([x, z, w, d]) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.4, d), bundMat);
+  m.position.set(x, 0.12, z); m.receiveShadow = true; m.castShadow = true; scene.add(m);
+});
+(function tufts(){
+  const pts = [];
+  const along = (x0, z0, x1, z1, y, n) => { for (let k = 0; k < n; k++){ const t = Math.random(); pts.push([x0 + (x1 - x0) * t + (Math.random() - .5) * 0.9, y, z0 + (z1 - z0) * t + (Math.random() - .5) * 0.9]); } };
+  along(-HX - 1, -HZ - 0.5, HX + 1, -HZ - 0.5, 0.32, 1400); along(-HX - 1, HZ + 0.5, HX + 1, HZ + 0.5, 0.32, 1400);
+  along(-HX - 0.5, -HZ, -HX - 0.5, HZ, 0.32, 800); along(HX + 0.5, -HZ, HX + 0.5, HZ, 0.32, 800);
+  for (let k = 0; k < 5000; k++){
+    const a = Math.random() * Math.PI * 2, r = 1;
+    const x = (Math.random() * 2 - 1) * (HX + 8), z = (Math.random() * 2 - 1) * (HZ + 8);
+    if (Math.abs(x) < HX + 1.2 && Math.abs(z) < HZ + 1.2) continue;
+    if (x < -51 && x > -67) continue;
+    if (z > HZ + 0.8 && z < HZ + 3.5) continue;
+    pts.push([x, -0.04, z]);
+  }
+  const geo = new THREE.ConeGeometry(0.07, 0.4, 3); geo.translate(0, 0.2, 0);
+  const m = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({color:0xFFFFFF}), pts.length);
+  const o = new THREE.Object3D(), col = new THREE.Color();
+  pts.forEach(([x, y, z], i) => {
+    o.position.set(x, y, z); o.rotation.set((Math.random() - .5) * 0.5, Math.random() * 6, (Math.random() - .5) * 0.5);
+    o.scale.set(1, 0.6 + Math.random() * 0.9, 1); o.updateMatrix(); m.setMatrixAt(i, o.matrix);
+    m.setColorAt(i, Math.random() < .3 ? col.setHSL(0.12, 0.4, 0.5).convertSRGBToLinear() : col.setHSL(0.2 + Math.random() * 0.06, 0.45, 0.28 + Math.random() * 0.1).convertSRGBToLinear());
+  });
+  m.receiveShadow = true; scene.add(m);
+})();
+
+// irrigation channel
+const water = new THREE.Mesh(new THREE.PlaneGeometry(FX + 40, 1.8), new THREE.MeshStandardMaterial({color:0x3E5A62, roughness:.06, metalness:.8}));
+water.rotation.x = -Math.PI / 2; water.position.set(14, -0.06, HZ + 2.1); scene.add(water);
+[HZ + 1.05, HZ + 3.15].forEach(z => {
+  const w = new THREE.Mesh(new THREE.BoxGeometry(FX + 40, 0.32, 0.3), new THREE.MeshStandardMaterial({color:0xA19C90, roughness:.9}));
+  w.position.set(14, 0.05, z); w.castShadow = w.receiveShadow = true; scene.add(w);
+});
+
+// landing pads
+PADS.forEach(p => {
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.1, 3.6), new THREE.MeshStandardMaterial({color:0x8C918B, roughness:.85}));
+  pad.position.set(p.x, 0.05, p.z); pad.receiveShadow = true; scene.add(pad);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(1.3, 0.045, 8, 48), new THREE.MeshStandardMaterial({color:ACCENT, roughness:.6}));
+  ring.rotation.x = Math.PI / 2; ring.position.set(p.x, 0.105, p.z); ring.scale.z = 0.1; scene.add(ring);
+  const h = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.01, 1.1), new THREE.MeshStandardMaterial({color:0xEDEDE8, roughness:.7}));
+  h.position.set(p.x, 0.105, p.z); scene.add(h);
+});
+
+// pickup truck with seed bags, ground crew
+(function truck(){
+  const g = new THREE.Group(); g.position.set(-63.4, 0, 33); scene.add(g);
+  const paint = new THREE.MeshPhysicalMaterial({color:0xE9EAE6, roughness:.35, metalness:.25, clearcoat:1, clearcoatRoughness:.2});
+  const glass = new THREE.MeshStandardMaterial({color:0x1E2A30, roughness:.05, metalness:.9});
+  const tyre = new THREE.MeshStandardMaterial({color:0x1A1A1A, roughness:.9});
+  const box = (w, h, d, x, y, z, m) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); b.castShadow = b.receiveShadow = true; g.add(b); return b; };
+  box(1.7, 0.55, 4.6, 0, 0.85, 0, paint);
+  box(1.6, 0.7, 1.5, 0, 1.45, -1.1, paint);
+  box(1.62, 0.5, 0.05, 0, 1.5, -0.33, glass);
+  box(1.5, 0.45, 0.05, 0, 1.5, -1.87, glass).rotation.x = -0.35;
+  [-1, 1].forEach(s => box(0.05, 0.42, 1.2, s * 0.81, 1.5, -1.1, glass));
+  [-1, 1].forEach(s => box(0.06, 0.32, 2.2, s * 0.82, 1.25, 1.1, paint));
+  box(1.7, 0.32, 0.06, 0, 1.25, 2.27, paint);
+  [[-0.78, -1.5], [0.78, -1.5], [-0.78, 1.45], [0.78, 1.45]].forEach(([x, z]) => {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.26, 20), tyre); w.rotation.z = Math.PI / 2; w.position.set(x, 0.36, z); w.castShadow = true; g.add(w);
+  });
+  for (let k = 0; k < 6; k++){
+    const bag = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.2, 0.42), new THREE.MeshStandardMaterial({color: k % 2 ? 0xDCCB9E : 0xE5D6AE, roughness:1}));
+    bag.position.set(-0.35 + (k % 2) * 0.68, 1.23 + Math.floor(k / 4) * 0.2, 0.5 + (Math.floor(k / 2) % 2) * 0.55); bag.rotation.y = (Math.random() - .5) * 0.2; bag.castShadow = true; g.add(bag);
+  }
+})();
+function person(x, z, ry, tablet){
+  const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry; scene.add(g);
+  const pants = new THREE.MeshStandardMaterial({color:0x2E3440, roughness:.9});
+  const vest = new THREE.MeshStandardMaterial({color:0xD5EE3A, roughness:.7});
+  const skin = new THREE.MeshStandardMaterial({color:0xC8996F, roughness:.8});
+  const cap = new THREE.MeshStandardMaterial({color:0x2B4A6B, roughness:.8});
+  const add_ = (geo, m, px, py, pz) => { const o = new THREE.Mesh(geo, m); o.position.set(px, py, pz); o.castShadow = true; g.add(o); return o; };
+  [-0.1, 0.1].forEach(s => add_(new THREE.CylinderGeometry(0.075, 0.065, 0.86, 10), pants, s, 0.43, 0));
+  add_(new THREE.CylinderGeometry(0.2, 0.17, 0.62, 14), vest, 0, 1.17, 0).scale.z = 0.65;
+  [-1, 1].forEach(s => { const a = add_(new THREE.CylinderGeometry(0.05, 0.045, 0.58, 8), vest, s * 0.24, 1.13, tablet ? 0.12 : 0); a.rotation.x = tablet ? -0.8 : 0; a.rotation.z = s * 0.12; });
+  add_(new THREE.SphereGeometry(0.11, 16, 12), skin, 0, 1.6, 0);
+  add_(new THREE.CylinderGeometry(0.12, 0.12, 0.06, 16), cap, 0, 1.69, 0);
+  add_(new THREE.BoxGeometry(0.1, 0.02, 0.14), cap, 0, 1.67, 0.12);
+  if (tablet){ const tb = add_(new THREE.BoxGeometry(0.28, 0.02, 0.2), new THREE.MeshStandardMaterial({color:0x111418, roughness:.3}), 0, 1.0, 0.32); tb.rotation.x = -0.6; }
+}
+person(-61.6, 17.5, Math.PI / 2 + 0.3, true);
+person(-61.8, 31.2, Math.PI / 2 - 0.4, false);
+
+// farm shed with a blue roof
+(function shed(){
+  const g = new THREE.Group(); g.position.set(-75, 0, -8); scene.add(g);
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(9, 3.4, 6), new THREE.MeshStandardMaterial({color:0xD9D3C2, roughness:.9}));
+  walls.position.y = 1.7; walls.castShadow = walls.receiveShadow = true; g.add(walls);
+  const roofMat = new THREE.MeshStandardMaterial({color:0x3D6E92, roughness:.45, metalness:.4});
+  [-1, 1].forEach(s => { const r = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.1, 3.5), roofMat); r.position.set(0, 3.95, s * 1.55); r.rotation.x = s * 0.33; r.castShadow = true; g.add(r); });
+  const door = new THREE.Mesh(new THREE.BoxGeometry(3, 2.6, 0.05), new THREE.MeshStandardMaterial({color:0x6F787E, roughness:.5, metalness:.5}));
+  door.position.set(1.5, 1.3, 3.03); g.add(door);
+})();
+
+// utility poles and wires along the road
+(function poles(){
+  const wood = new THREE.MeshStandardMaterial({color:0x6E6A62, roughness:.9});
+  const zs = [-60, -28, 4, 36, 68], tops = [];
+  zs.forEach(z => {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, 10, 10), wood); p.position.set(-67.5, 5, z); p.castShadow = true; scene.add(p);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.1, 0.1), wood); arm.position.set(-67.5, 9.4, z); arm.castShadow = true; scene.add(arm);
+    tops.push(z);
+  });
+  const lineMat = new THREE.LineBasicMaterial({color:0x222222});
+  [-0.8, 0, 0.8].forEach(ox => {
+    for (let k = 0; k < tops.length - 1; k++){
+      const pts = [];
+      for (let s = 0; s <= 24; s++){ const t = s / 24; pts.push(new V3(-67.5 + ox, 9.45 - Math.sin(t * Math.PI) * 0.7, tops[k] + (tops[k + 1] - tops[k]) * t)); }
+      scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat));
+    }
+  });
+})();
+
+// windsock
+const sockPivot = new THREE.Group();
+(function windsock(){
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 5, 8), new THREE.MeshStandardMaterial({color:0xC9CCC6, roughness:.4, metalness:.6}));
+  pole.position.set(-53.5, 2.5, 30); pole.castShadow = true; scene.add(pole);
+  sockPivot.position.set(-53.5, 4.9, 30); sockPivot.rotation.order = 'YXZ'; scene.add(sockPivot);
+  const geo = new THREE.CylinderGeometry(0.06, 0.22, 1.5, 14, 1, true); geo.rotateX(-Math.PI / 2); geo.translate(0, 0, 0.75);
+  const tex = canvasTex(64, 8, (x, w, h) => { for (let k = 0; k < 5; k++){ x.fillStyle = k % 2 ? '#F2F0EA' : '#E8622C'; x.fillRect(0, k * h / 5, w, h / 5 + 1); } });
+  const sock = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({map:tex, side:THREE.DoubleSide, roughness:.8}));
+  sock.castShadow = true; sockPivot.add(sock);
+})();
+
+// trees: pines and autumn broadleaves
+(function trees(){
+  const spots = [];
+  for (let i = 0; i < 900 && spots.length < 260; i++){
+    const band = Math.random();
+    let x, z;
+    if (band < .45){ x = -110 + Math.random() * 230; z = -HZ - 12 - Math.random() * 40; }
+    else if (band < .75){ x = HX + 12 + Math.random() * 40; z = -50 + Math.random() * 110; }
+    else { x = -125 + Math.random() * 40; z = -70 + Math.random() * 140; }
+    if (x > -84 && x < -50 && z > -22 && z < 46) continue;
+    spots.push([x, z, 0.7 + Math.random() * 0.7, Math.random() < .6]);
+  }
+  const pines = spots.filter(s => s[3]), broad = spots.filter(s => !s[3]);
+  const o = new THREE.Object3D(), col = new THREE.Color();
+  const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.32, 3, 6), new THREE.MeshLambertMaterial({color:0x4E3B2C}), spots.length);
+  spots.forEach(([x, z, s], i) => { o.position.set(x, 1.5 * s, z); o.scale.setScalar(s); o.rotation.set(0, 0, 0); o.updateMatrix(); trunk.setMatrixAt(i, o.matrix); });
+  trunk.castShadow = true; scene.add(trunk);
+  [[2.4, 3.6, 3.2], [1.9, 3.1, 4.9], [1.3, 2.6, 6.4]].forEach(([r, h, y]) => {
+    const m = new THREE.InstancedMesh(new THREE.ConeGeometry(r, h, 8), new THREE.MeshLambertMaterial({color:0xFFFFFF}), pines.length);
+    pines.forEach(([x, z, s], i) => {
+      o.position.set(x, y * s, z); o.scale.setScalar(s); o.rotation.set(0, Math.random() * 6, 0); o.updateMatrix(); m.setMatrixAt(i, o.matrix);
+      m.setColorAt(i, col.setHSL(0.28 + (i % 7) * 0.006, 0.34, 0.17 + (i % 5) * 0.012).convertSRGBToLinear());
+    });
+    m.castShadow = true; scene.add(m);
+  });
+  const autumn = [0xC8662A, 0xB4442C, 0xD9A23A, 0x6E8A3C, 0x8E5A2E, 0xCF7F2E];
+  const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(2.5, 1), new THREE.MeshPhongMaterial({color:0xFFFFFF, flatShading:true, shininess:0}), broad.length * 2);
+  broad.forEach(([x, z, s], i) => {
+    const c = autumn[i % autumn.length];
+    [[0, 4.6, 0, 1], [0.9, 5.4, 0.5, 0.75]].forEach(([dx, y, dz, k], q) => {
+      o.position.set(x + dx * s, y * s, z + dz * s); o.scale.set(s * k, s * k * 1.1, s * k); o.rotation.set(Math.random(), Math.random() * 6, 0); o.updateMatrix();
+      crown.setMatrixAt(i * 2 + q, o.matrix); crown.setColorAt(i * 2 + q, col.setHex(c).offsetHSL(0, 0, (Math.random() - .5) * 0.06).convertSRGBToLinear());
+    });
+  });
+  crown.castShadow = true; scene.add(crown);
+})();
+
+// layered mountain ridges fading into haze
+(function ridges(){
+  const fbm = (a, seed) => { let v = 0, n = 0; [[3, 1], [7, .6], [13, .35], [23, .2], [41, .12]].forEach(([k, w], q) => { v += Math.sin(a * k + seed * (q + 1) * 1.7) * w; n += w; }); return v / n * 0.5 + 0.5; };
+  [[240, 70, 18, 62, 0x4D6244, 1.1], [330, 90, 34, 105, 0x5F7468, 2.3], [450, 110, 55, 160, 0x7A8F98, 3.9]].forEach(([r, depth, h0, h1, color, seed]) => {
+    const N = 360, ROWS = 4, pos = [], idx = [], cols = [], base = lin(color), c = new THREE.Color();
+    for (let i = 0; i <= N; i++){
+      const a = i / N * Math.PI * 2, h = h0 + (h1 - h0) * Math.pow(fbm(a, seed), 1.4);
+      for (let q = 0; q <= ROWS; q++){
+        const f = q / ROWS, rr = r + depth * Math.pow(f, 0.7), y = -3 + (h + 3) * Math.sin(f * Math.PI / 2) + (q > 0 && q < ROWS ? (fbm(a * 3, seed + q) - .5) * 6 : 0);
+        pos.push(Math.cos(a) * rr, y, Math.sin(a) * rr);
+        const patch = 0.82 + 0.3 * fbm(a * 5 + q, seed * 2);
+        c.copy(base).multiplyScalar((0.72 + 0.4 * f) * patch); cols.push(c.r, c.g, c.b);
+      }
+      if (i < N) for (let q = 0; q < ROWS; q++){ const b = i * (ROWS + 1) + q, n = b + ROWS + 1; idx.push(b, b + 1, n, b + 1, n + 1, n); }
+    }
+    const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3)); geo.setIndex(idx); geo.computeVertexNormals();
+    scene.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({color:0xFFFFFF, vertexColors:true, side:THREE.DoubleSide})));
+  });
+})();
+
+// clouds
+const clouds = [];
+(function makeClouds(){
+  const tex = canvasTex(256, 128, (x, w, h) => {
+    for (let k = 0; k < 40; k++){
+      const px = w * (0.15 + Math.random() * 0.7), py = h * (0.45 + (Math.random() - .5) * 0.35), r = 14 + Math.random() * 34;
+      const g = x.createRadialGradient(px, py, 0, px, py, r);
+      g.addColorStop(0, 'rgba(255,255,255,.55)'); g.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = g; x.fillRect(px - r, py - r, r * 2, r * 2);
+    }
+  });
+  for (let k = 0; k < 18; k++){
+    const m = new THREE.SpriteMaterial({map:tex, fog:false, depthWrite:false, transparent:true, opacity:.8});
+    const s = new THREE.Sprite(m);
+    const a = Math.random() * Math.PI * 2, r = 280 + Math.random() * 420;
+    s.position.set(Math.cos(a) * r, 150 + Math.random() * 110, Math.sin(a) * r);
+    const sc = 160 + Math.random() * 160; s.scale.set(sc, sc * 0.4, 1);
+    scene.add(s); clouds.push(s);
+  }
+})();
+
+// ---------- drone builder ----------
+const carbonTex = canvasTex(64, 64, (x, w) => {
+  for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++){
+    const g = x.createLinearGradient(i * 8, j * 8, i * 8 + ((i + j) % 2 ? 8 : 0), j * 8 + ((i + j) % 2 ? 0 : 8));
+    g.addColorStop(0, '#26282A'); g.addColorStop(0.5, '#3A3D40'); g.addColorStop(1, '#1C1D1F');
+    x.fillStyle = g; x.fillRect(i * 8, j * 8, 8, 8);
+  }
+}, {repeat:[3, 10]});
+const blurTex = canvasTex(128, 128, (x, w) => {
+  const g = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(20,20,20,0)'); g.addColorStop(0.15, 'rgba(20,20,20,.25)'); g.addColorStop(0.8, 'rgba(20,20,20,.38)');
+  g.addColorStop(0.93, 'rgba(20,20,20,.6)'); g.addColorStop(0.97, 'rgba(240,240,240,.35)'); g.addColorStop(1, 'rgba(20,20,20,0)');
+  x.fillStyle = g; x.fillRect(0, 0, w, w);
+});
+const MAT = {
+  shell: new THREE.MeshPhysicalMaterial({color:0xEEF0EC, roughness:.32, metalness:0, clearcoat:1, clearcoatRoughness:.12}),
+  dark: new THREE.MeshStandardMaterial({color:0x2A2E2C, roughness:.55}),
+  carbon: new THREE.MeshStandardMaterial({color:0xFFFFFF, map:carbonTex, roughness:.28, metalness:.35}),
+  metal: new THREE.MeshStandardMaterial({color:0xA8AEB2, roughness:.22, metalness:.95}),
+  batt: new THREE.MeshStandardMaterial({color:0x474D53, roughness:.45, metalness:.2}),
+  rubber: new THREE.MeshStandardMaterial({color:0x151515, roughness:.95}),
+  stripe: new THREE.MeshStandardMaterial({color:0xD8392B, roughness:.4}),
+  newPart: new THREE.MeshPhysicalMaterial({color:ACCENT, roughness:.35, clearcoat:.6, clearcoatRoughness:.3}),
+  hopper: new THREE.MeshPhysicalMaterial({color:ACCENT, transparent:true, opacity:.32, side:THREE.DoubleSide, depthWrite:false, roughness:.08, clearcoat:1}),
+  mark: new THREE.MeshStandardMaterial({color:0x3A3A3A, roughness:.6}),
+  seed: new THREE.MeshStandardMaterial({color:0xB98A3E, roughness:.95, metalness:0}),
+  blade: new THREE.MeshStandardMaterial({color:0x1E1F20, roughness:.35, metalness:.2}),
+  lens: new THREE.MeshStandardMaterial({color:0x0E1A24, roughness:.05, metalness:.9}),
+  red: new THREE.MeshBasicMaterial({color:0xFF3B30, toneMapped:false}), green: new THREE.MeshBasicMaterial({color:0x34E36A, toneMapped:false}), white: new THREE.MeshBasicMaterial({color:0xFFFFFF, toneMapped:false}),
+};
+const bladeGeo = (() => {
+  const s = new THREE.Shape();
+  s.moveTo(0.05, -0.02); s.quadraticCurveTo(0.24, -0.052, 0.52, -0.024); s.quadraticCurveTo(0.575, 0, 0.52, 0.02); s.quadraticCurveTo(0.26, 0.034, 0.05, 0.02); s.closePath();
+  const g = new THREE.ExtrudeGeometry(s, {depth:0.008, bevelEnabled:false}); g.rotateX(-Math.PI / 2); return g;
+})();
+const HOP = {h:0.5, rt:0.33, rb:0.14, y:0.2};
+
+function cylBetween(parent, a, b, r, mat){
+  const dir = new V3().subVectors(b, a), len = dir.length();
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 10), mat);
+  m.position.copy(a).addScaledVector(dir, 0.5);
+  m.quaternion.setFromUnitVectors(new V3(0, 1, 0), dir.normalize());
+  parent.add(m); return m;
+}
+function add(parent, geo, mat, x, y, z){ const m = new THREE.Mesh(geo, mat); m.position.set(x || 0, y || 0, z || 0); parent.add(m); return m; }
+function anchor(parent, x, y, z){ const o = new THREE.Object3D(); o.position.set(x, y, z); parent.add(o); return o; }
+
+function buildDrone(j){
+  const g = new THREE.Group(); g.rotation.order = 'YXZ';
+  const R = {g, props:[], blurs:[], blades:[], spin:0};
+  R.blurMat = new THREE.MeshBasicMaterial({map:blurTex, transparent:true, opacity:0, depthWrite:false, side:THREE.DoubleSide});
+  // fuselage
+  const shell = add(g, new THREE.SphereGeometry(1, 36, 20), MAT.shell, 0, 0.06, 0); shell.scale.set(0.36, 0.17, 0.66);
+  add(g, new THREE.BoxGeometry(0.6, 0.16, 0.98), MAT.dark, 0, -0.05, 0);
+  add(g, new THREE.BoxGeometry(0.64, 0.03, 1.0), MAT.carbon, 0, 0.03, 0);
+  [-1, 1].forEach(s => add(g, new THREE.BoxGeometry(0.01, 0.05, 0.5), MAT.metal, s * 0.305, -0.06, 0.1));
+  // battery with model and fleet ID decal
+  add(g, new THREE.BoxGeometry(0.3, 0.15, 0.24), MAT.batt, 0, 0.21, -0.46);
+  add(g, new THREE.BoxGeometry(0.2, 0.03, 0.04), MAT.dark, 0, 0.3, -0.46);
+  const decal = canvasTex(256, 96, (x, w, h) => {
+    x.fillStyle = '#474D53'; x.fillRect(0, 0, w, h);
+    x.fillStyle = '#E89A2C'; x.fillRect(0, 0, 14, h);
+    x.fillStyle = '#F2F2EE'; x.font = '600 40px "IBM Plex Mono", monospace'; x.fillText('SR-25', 30, 46);
+    x.font = '500 26px "IBM Plex Mono", monospace'; x.fillStyle = '#C9CDC6'; x.fillText('D' + (j + 1) + ' · 22.2V', 30, 82);
+  });
+  const dp = add(g, new THREE.PlaneGeometry(0.29, 0.11), new THREE.MeshStandardMaterial({map:decal, roughness:.5}), 0, 0.21, -0.581); dp.rotation.y = Math.PI;
+  // FPV camera and terrain radars
+  add(g, new THREE.BoxGeometry(0.14, 0.1, 0.08), MAT.dark, 0, 0.02, 0.66);
+  add(g, new THREE.CylinderGeometry(0.035, 0.035, 0.03, 20), MAT.lens, 0, 0.02, 0.705).rotation.x = Math.PI / 2;
+  R.fpv = anchor(g, 0, 0.03, 0.75);
+  [0.62, -0.62].forEach(z => { const r = add(g, new THREE.SphereGeometry(0.075, 20, 12), MAT.dark, 0, -0.12, z); r.scale.set(1.4, 0.6, 0.8); });
+  R.radar = anchor(g, 0, -0.14, 0.7);
+  // RTK antennas
+  [-0.22, 0.22].forEach(x => {
+    add(g, new THREE.CylinderGeometry(0.012, 0.012, 0.16, 6), MAT.metal, x, 0.26, -0.22);
+    add(g, new THREE.CylinderGeometry(0.065, 0.065, 0.025, 24), MAT.shell, x, 0.35, -0.22);
+  });
+  R.rtk = anchor(g, 0.22, 0.38, -0.22);
+  // arms, motors, props, spray hoses
+  for (let k = 0; k < 6; k++){
+    const deg = k * 60 + 30;
+    const a = new THREE.Group(); a.rotation.y = deg * Math.PI / 180; g.add(a);
+    const arm = add(a, new THREE.CylinderGeometry(0.032, 0.04, 0.84, 14), MAT.carbon, 0.72, 0.02, 0); arm.rotation.z = Math.PI / 2;
+    add(a, new THREE.CylinderGeometry(0.055, 0.055, 0.1, 14), MAT.dark, 0.42, 0.02, 0);
+    add(a, new THREE.CylinderGeometry(0.044, 0.044, 0.05, 14), MAT.stripe, 1.0, 0.02, 0).rotation.z = Math.PI / 2;
+    const hose = add(a, new THREE.CylinderGeometry(0.009, 0.009, 0.7, 6), MAT.dark, 0.75, -0.025, 0.03); hose.rotation.z = Math.PI / 2;
+    add(a, new THREE.CylinderGeometry(0.09, 0.09, 0.05, 24), MAT.dark, 1.14, 0.04, 0);
+    add(a, new THREE.CylinderGeometry(0.082, 0.086, 0.09, 24), MAT.metal, 1.14, 0.11, 0);
+    add(a, new THREE.CylinderGeometry(0.06, 0.07, 0.015, 24), MAT.dark, 1.14, 0.162, 0);
+    add(a, new THREE.CylinderGeometry(0.03, 0.03, 0.04, 12), MAT.dark, 1.14, 0.17, 0);
+    add(a, new THREE.ConeGeometry(0.03, 0.08, 12), MAT.shell, 1.14, -0.08, 0).rotation.x = Math.PI;
+    const prop = new THREE.Group(); prop.position.set(1.14, 0.2, 0); a.add(prop);
+    const bl = new THREE.Group(); prop.add(bl); R.blades.push(bl);
+    [0, Math.PI].forEach(r => { const p = new THREE.Group(); p.rotation.y = r; bl.add(p); const b = new THREE.Mesh(bladeGeo, MAT.blade); b.rotation.x = 0.14; p.add(b); });
+    add(prop, new THREE.CylinderGeometry(0.035, 0.035, 0.03, 14), MAT.metal);
+    const blur = add(prop, new THREE.CircleGeometry(0.575, 48), R.blurMat, 0, 0.012, 0); blur.rotation.x = -Math.PI / 2;
+    R.props.push(prop); R.blurs.push(blur);
+    if (deg === 330) add(a, new THREE.SphereGeometry(0.028, 10, 8), MAT.red, 1.14, -0.02, 0.09);
+    if (deg === 210) add(a, new THREE.SphereGeometry(0.028, 10, 8), MAT.green, 1.14, -0.02, -0.09);
+    if (deg === 90) R.strobe = add(a, new THREE.SphereGeometry(0.032, 10, 8), MAT.white, 1.14, -0.02, 0);
+    if (deg === 30) R.rotor = anchor(a, 1.14, 0.25, 0);
+  }
+  // landing gear with rubber feet
+  [-1, 1].forEach(s => {
+    [-0.28, 0.28].forEach(z => cylBetween(g, new V3(s * 0.24, -0.1, z), new V3(s * 0.5, -0.84, z), 0.022, MAT.carbon));
+    const skid = add(g, new THREE.CylinderGeometry(0.026, 0.026, 1.15, 12), MAT.carbon, s * 0.5, -0.84, 0); skid.rotation.x = Math.PI / 2;
+    [-0.575, 0.575].forEach(z => add(g, new THREE.SphereGeometry(0.034, 10, 8), MAT.rubber, s * 0.5, -0.84, z));
+  });
+  // stock spray tank
+  add(g, new THREE.CylinderGeometry(0.2, 0.2, 0.34, 28), MAT.shell, 0, -0.32, -0.22);
+  add(g, new THREE.CylinderGeometry(0.06, 0.06, 0.05, 16), MAT.dark, 0, -0.12, -0.22);
+  R.tank = anchor(g, -0.2, -0.47, -0.3);
+
+  // ----- added seeding parts -----
+  const hopper = new THREE.Group(); hopper.position.y = HOP.y; g.add(hopper); R.hopper = hopper;
+  add(hopper, new THREE.CylinderGeometry(HOP.rt, HOP.rb, HOP.h, 40, 1, true), MAT.hopper, 0, HOP.h / 2 + 0.05, 0);
+  [0.25, 0.5, 0.75].forEach(f => { const r = HOP.rb + (HOP.rt - HOP.rb) * f; const m = add(hopper, new THREE.TorusGeometry(r + 0.002, 0.003, 4, 40), MAT.mark, 0, 0.05 + HOP.h * f, 0); m.rotation.x = Math.PI / 2; });
+  const rim = add(hopper, new THREE.TorusGeometry(HOP.rt, 0.016, 10, 48), MAT.newPart, 0, HOP.h + 0.05, 0); rim.rotation.x = Math.PI / 2;
+  add(hopper, new THREE.CylinderGeometry(HOP.rt + 0.012, HOP.rt + 0.012, 0.025, 40), MAT.newPart, 0, HOP.h + 0.07, 0);
+  add(hopper, new THREE.BoxGeometry(0.16, 0.03, 0.04), MAT.dark, 0, HOP.h + 0.095, 0);
+  add(hopper, new THREE.CylinderGeometry(HOP.rb + 0.01, HOP.rb + 0.01, 0.06, 28), MAT.newPart, 0, 0.04, 0);
+  R.fill = add(hopper, new THREE.BufferGeometry(), MAT.seed); R.fillShown = -1;
+  R.hopperA = anchor(hopper, 0, HOP.h + 0.12, 0);
+  const feed = new THREE.Group(); g.add(feed); R.feed = feed;
+  cylBetween(feed, new V3(0, 0.12, 0.02), new V3(0, -0.53, 0.18), 0.032, MAT.newPart);
+  const gate = new THREE.Group(); gate.position.set(0, -0.56, 0.18); feed.add(gate);
+  add(gate, new THREE.BoxGeometry(0.13, 0.07, 0.13), MAT.newPart);
+  add(gate, new THREE.BoxGeometry(0.05, 0.05, 0.08), MAT.dark, 0.09, 0, 0);
+  R.gateA = anchor(gate, 0.13, 0, 0);
+  const spinner = new THREE.Group(); spinner.position.set(0, -0.63, 0.18); g.add(spinner); R.spinner = spinner;
+  const disc = new THREE.Group(); spinner.add(disc); R.disc = disc;
+  add(disc, new THREE.CylinderGeometry(0.17, 0.17, 0.02, 36), MAT.newPart);
+  for (let k = 0; k < 4; k++){ const v = add(disc, new THREE.BoxGeometry(0.15, 0.035, 0.013), MAT.dark, 0, 0.025, 0); v.rotation.y = k * Math.PI / 2; v.translateX(0.08); }
+  R.discA = anchor(spinner, 0, -0.02, 0.17);
+  const defl = new THREE.Group(); spinner.add(defl); R.defl = defl;
+  R.deflMat = new THREE.MeshPhysicalMaterial({color:ACCENT, side:THREE.DoubleSide, roughness:.4, clearcoat:.5});
+  add(defl, new THREE.CylinderGeometry(0.27, 0.27, 0.13, 28, 1, true, -0.95, 1.9), R.deflMat, 0, 0.01, 0);
+  R.deflA = anchor(defl, 0, 0, 0.28);
+  g.traverse(o => { if (o.isMesh && o.material !== MAT.hopper && o.material !== R.blurMat) o.castShadow = true; });
+  scene.add(g);
+  return R;
+}
+function setFill(R, level){
+  level = Math.max(0, Math.min(1, level));
+  if (Math.abs(level - R.fillShown) < 0.01) return;
+  R.fillShown = level;
+  R.fill.visible = level > 0.01;
+  if (!R.fill.visible) return;
+  const rb = HOP.rb - 0.015, rt = rb + (HOP.rt - 0.015 - rb) * level, h = (HOP.h - 0.01) * level;
+  R.fill.geometry.dispose();
+  R.fill.geometry = new THREE.CylinderGeometry(rt, rb, h, 32);
+  R.fill.position.y = 0.055 + h / 2;
+}
+
+const drones = [0, 1, 2].map(j => ({j, R: buildDrone(j), pad: PADS[j]}));
+const R0 = drones[0].R;
+
+// convert every material colour authored in sRGB to linear once, now that the scene is built
+(function linearize(){
+  const seen = new Set();
+  const fix = m => { if (!m || seen.has(m)) return; seen.add(m); if (m.color) m.color.convertSRGBToLinear(); if (m.emissive) m.emissive.convertSRGBToLinear(); };
+  scene.traverse(o => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach(fix); });
+  scene.fog.color.convertSRGBToLinear();
+})();
+function setHighlight(on){
+  MAT.newPart.color.copy(lin(on ? ACCENT : STOCK));
+  MAT.hopper.color.copy(lin(on ? ACCENT : 0xDDE6E8));
+  drones.forEach(d => d.R.deflMat.color.copy(lin(on ? ACCENT : STOCK)));
+}
+
+// ---------- light presets ----------
+const LIGHTS = {
+  day: {elev:52, az:150, turb:4.5, ray:1.3, mie:0.004, mieG:0.8, sun:0xFFF3E0, sunI:2.5, hs:0xDCE8FF, hg:0x6B5A3E, hi:0.55, fog:0xC2D3E0, exp:0.6, cloud:0xFFFFFF},
+  eve: {elev:7, az:245, turb:6, ray:2.4, mie:0.006, mieG:0.86, sun:0xFFB070, sunI:2.0, hs:0xF0C8A6, hg:0x4A3B2C, hi:0.42, fog:0xDDB696, exp:0.68, cloud:0xFFCCA6},
+};
+let lightKey = 'day';
+function applyLight(k){
+  lightKey = k; const L = LIGHTS[k];
+  sunDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - L.elev), THREE.MathUtils.degToRad(L.az));
+  [sky, envSky].forEach(s => {
+    const u = s.material.uniforms;
+    u.turbidity.value = L.turb; u.rayleigh.value = L.ray; u.mieCoefficient.value = L.mie; u.mieDirectionalG.value = L.mieG;
+    u.sunPosition.value.copy(sunDir);
+  });
+  sun.color.copy(lin(L.sun)); sun.intensity = L.sunI;
+  hemi.color.copy(lin(L.hs)); hemi.groundColor.copy(lin(L.hg)); hemi.intensity = L.hi;
+  scene.fog.color.copy(lin(L.fog));
+  renderer.toneMappingExposure = L.exp;
+  clouds.forEach(c => c.material.color.copy(lin(L.cloud)));
+  if (envRT) envRT.dispose();
+  envRT = pmrem.fromScene(envScene, 0.02);
+  scene.environment = envRT.texture;
+  shadowSize = 0;
+}
+
+// ---------- labels (model view) ----------
+const labelDefs = [
+  {o:R0.hopperA, t:'Seed hopper · 25 kg', n:true, a:'t'},
+  {o:R0.gateA, t:'Metering gate', n:true, a:'r'},
+  {o:R0.discA, t:'Spinner disc', n:true, a:'l'},
+  {o:R0.deflA, t:'Border deflector', n:true, a:'b'},
+  {o:R0.tank, t:'Spray tank · kept', n:false, a:'r'},
+  {o:R0.rtk, t:'RTK GPS · kept', n:false, a:'t'},
+  {o:R0.radar, t:'Terrain radar · kept', n:false, a:'l'},
+  {o:R0.rotor, t:'Rotor ×6 · kept', n:false, a:'t'},
+];
+const labelsEl = $('labels');
+labelDefs.forEach(d => {
+  const el = document.createElement('div');
+  el.className = 'lbl' + (d.n ? ' new' : '');
+  el.innerHTML = '<i></i>' + d.t;
+  labelsEl.appendChild(el); d.el = el;
+});
+const tmpV = new V3(), tmpV2 = new V3();
+function updateLabels(show){
+  const w = vp.clientWidth, h = vp.clientHeight;
+  labelDefs.forEach(d => {
+    if (!show){ d.el.hidden = true; return; }
+    d.o.getWorldPosition(tmpV); tmpV.project(camera);
+    if (tmpV.z > 1){ d.el.hidden = true; return; }
+    d.el.hidden = false;
+    const x = (tmpV.x * .5 + .5) * w, y = (-tmpV.y * .5 + .5) * h;
+    const al = {t:'translate(-50%, -135%)', b:'translate(-50%, 45%)', l:'translate(calc(-100% - 10px), -50%)', r:'translate(10px, -50%)'}[d.a];
+    d.el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) ${al}`;
+  });
+}
+
+// ---------- particles: seed and rotor-wash dust ----------
+function makePoints(n, color, size, opacity, map){
+  const pos = new Float32Array(n * 3); for (let i = 0; i < n; i++) pos[i * 3 + 1] = -50;
+  const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({color: lin(color), size, map, transparent:true, opacity, depthWrite:false, alphaTest: opacity >= 1 ? 0.4 : 0});
+  const pts = new THREE.Points(geo, mat);
+  pts.frustumCulled = false; scene.add(pts);
+  return {n, pos, vel: new Float32Array(n * 3), life: new Float32Array(n), geo, next: 0};
+}
+const seeds = makePoints(3200, 0xEBC271, 0.075, 1, roundDot);
+const dust = makePoints(1100, 0xB59B76, 0.9, 0.22, softDot);
+function spawn(ps, x, y, z, vx, vy, vz, life){
+  const i = ps.next; ps.next = (ps.next + 1) % ps.n;
+  ps.pos[i * 3] = x; ps.pos[i * 3 + 1] = y; ps.pos[i * 3 + 2] = z;
+  ps.vel[i * 3] = vx; ps.vel[i * 3 + 1] = vy; ps.vel[i * 3 + 2] = vz; ps.life[i] = life;
+}
+function stepSeeds(dt){
+  const p = seeds.pos, v = seeds.vel;
+  for (let i = 0; i < seeds.n; i++){
+    if (p[i * 3 + 1] < -1) continue;
+    v[i * 3 + 1] -= G * dt;
+    p[i * 3] += v[i * 3] * dt; p[i * 3 + 1] += v[i * 3 + 1] * dt; p[i * 3 + 2] += v[i * 3 + 2] * dt;
+    if (p[i * 3 + 1] <= 0.03) p[i * 3 + 1] = -50;
+  }
+  seeds.geo.attributes.position.needsUpdate = true;
+}
+function stepDust(dt, W){
+  const p = dust.pos, v = dust.vel, l = dust.life, k = Math.pow(0.25, dt);
+  for (let i = 0; i < dust.n; i++){
+    if (p[i * 3 + 1] < -1) continue;
+    l[i] -= dt;
+    if (l[i] <= 0){ p[i * 3 + 1] = -50; continue; }
+    v[i * 3] = v[i * 3] * k + W.x * 0.6 * dt; v[i * 3 + 2] = v[i * 3 + 2] * k + W.z * 0.6 * dt; v[i * 3 + 1] = v[i * 3 + 1] * k + 0.15 * dt;
+    p[i * 3] += v[i * 3] * dt; p[i * 3 + 1] += v[i * 3 + 1] * dt; p[i * 3 + 2] += v[i * 3 + 2] * dt;
+  }
+  dust.geo.attributes.position.needsUpdate = true;
+}
+
+// ---------- prescription map ----------
+const rx = new Float32Array(NC);
+function rxRaw(x, z){ return Math.sin(x * 0.07 + 1.3) * Math.cos(z * 0.09 - 0.4) + 0.6 * Math.sin((x + z) * 0.045 + 2.1) + 0.4 * Math.cos(x * 0.13 - z * 0.05); }
+for (let j = 0; j < CZ; j++) for (let i = 0; i < CX; i++){
+  const v = rxRaw(i - HX + .5, j - HZ + .5);
+  rx[j * CX + i] = v > 0.8 ? 1.25 : v < -0.15 ? 0.8 : 1;
+}
+const cellIdx = (x, z) => Math.min(CZ - 1, Math.max(0, Math.floor(z + HZ))) * CX + Math.min(CX - 1, Math.max(0, Math.floor(x + HX)));
+const rxAt = (x, z) => rx[cellIdx(x, z)];
+
+// ---------- physics helpers ----------
+function windVec(){ const phi = (P.windFrom + 180) * Math.PI / 180; return {x: Math.sin(phi) * P.wind, z: -Math.cos(phi) * P.wind}; }
+const gust = t => 1 + 0.16 * Math.sin(t * 0.83) + 0.1 * Math.sin(t * 2.17 + 1.3) + 0.05 * Math.sin(t * 5.3 + 0.4);
+const FALL_T = (0.4 + Math.sqrt(0.16 + 2 * G * (WORK_ALT - DISC_DROP))) / G;
+function driftVec(){ const w = windVec(); return {x: w.x * 0.82 * FALL_T, z: w.z * 0.82 * FALL_T}; }
+const tri = (d, S) => { const a = Math.abs(d); return a >= S ? 0 : (1 - a / S) / S; };
+
+// ---------- simulation state ----------
+const S = {};
+let dens = new Float32Array(NC), Seff = 5, nLanes = 12, running = false, texDirty = false;
+
+function plan(){
+  nLanes = Math.ceil(FZ / P.sw);
+  Seff = FZ / nLanes;
+  const lanes = []; for (let k = 0; k < nLanes; k++) lanes.push(HZ - Seff / 2 - k * Seff);
+  drones.forEach((d, j) => {
+    d.WP = [];
+    if (j >= P.n) return;
+    const a = Math.floor(j * nLanes / P.n), b = Math.floor((j + 1) * nLanes / P.n);
+    for (let k = a; k < b; k++){
+      const dir = (k - a) % 2 === 0 ? 1 : -1;
+      d.WP.push({x: -HX * dir, z: lanes[k], seed:false}, {x: HX * dir, z: lanes[k], seed:true});
+    }
+  });
+  $('plan-line').textContent = `${nLanes} lanes, ${Seff.toFixed(1)} m apart` + (P.n > 1 ? `, split across ${P.n} drones` : '');
+}
+function resetSim(){
+  Object.assign(S, {time:0, used:0, deposited:0, treated:0, refills:0, swaps:0, grown:false, done:false});
+  dens = new Float32Array(NC);
+  fx.drawImage(baseField, 0, 0); fieldTex.needsUpdate = true;
+  plan();
+  drones.forEach((d, j) => Object.assign(d, {
+    x: d.pad.x, z: d.pad.z, y: PAD_Y, v: 0, hx: 1, hz: 0, acc: 0, i: 0,
+    state: j < P.n ? 'idle' : 'off', timer: 0, hopper: CAP, batt: 100, final: false, seeding: false, flowLim: false,
+    need: 0, transitAlt: 6 + j * 1.6, resume: d.WP && d.WP[0] ? {x: d.WP[0].x, z: d.WP[0].z} : null, reason: '', deflAng: Math.PI,
+  }));
+  if (sprouts){ scene.remove(sprouts); sprouts.geometry.dispose(); sprouts = null; }
+  running = false;
+  $('report').hidden = true; $('grow-note').hidden = true;
+  if (sel >= P.n) sel = 0;
+  buildFleetChips();
+  syncSimUI(); updateStats(true); refreshOverlay(true);
+}
+
+function deposit(x0, z0, x1, z1, need, D){
+  const dx = x1 - x0, dz = z1 - z0, L = Math.hypot(dx, dz); if (L < 1e-6) return 0;
+  const ux = dx / L, uz = dz / L, nx = -uz, nz = ux, Sw = Seff;
+  const cz = P.comp ? D.z : 0, Bhi = HZ - cz, Blo = -HZ - cz;
+  const i0 = Math.max(0, Math.floor(Math.min(x0, x1) - Sw + D.x + HX)), i1 = Math.min(CX - 1, Math.floor(Math.max(x0, x1) + Sw + D.x + HX));
+  const j0 = Math.max(0, Math.floor(Math.min(z0, z1) - Sw + D.z + HZ)), j1 = Math.min(CZ - 1, Math.floor(Math.max(z0, z1) + Sw + D.z + HZ));
+  let added = 0;
+  for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++){
+    const px = i - HX + 0.5 - D.x, pz = j - HZ + 0.5 - D.z;
+    if (P.defl && (pz > Bhi || pz < Blo)) continue;
+    const rx_ = px - x0, rz_ = pz - z0;
+    const t = (rx_ * ux + rz_ * uz) / L; if (t < 0 || t >= 1) continue;
+    let w = tri(rx_ * nx + rz_ * nz, Sw);
+    if (P.defl){ w += tri(rx_ * nx + (2 * Bhi - pz - z0) * nz, Sw) + tri(rx_ * nx + (2 * Blo - pz - z0) * nz, Sw); }
+    if (w <= 0) continue;
+    const m = need * w; dens[j * CX + i] += m; added += m;
+  }
+  return added;
+}
+function paintSeeds(x0, z0, x1, z1, m, D){
+  const L = Math.hypot(x1 - x0, z1 - z0); if (!L) return;
+  const ux = (x1 - x0) / L, uz = (z1 - z0) / L, nx = -uz, nz = ux;
+  const cz = P.comp ? D.z : 0, Bhi = HZ - cz, Blo = -HZ - cz;
+  let n = m * 1500; n = Math.floor(n) + (Math.random() < n % 1 ? 1 : 0);
+  fx.fillStyle = 'rgba(240,214,150,.95)';
+  for (let k = 0; k < n; k++){
+    const a = Math.random() * L, l = (Math.random() + Math.random() - 1) * Seff;
+    let px = x0 + ux * a + nx * l, pz = z0 + uz * a + nz * l;
+    if (P.defl){ if (pz > Bhi) pz = 2 * Bhi - pz; else if (pz < Blo) pz = 2 * Blo - pz; }
+    px += D.x; pz += D.z;
+    if (Math.abs(px) > HX || Math.abs(pz) > HZ) continue;
+    fx.fillRect((px + HX) * PPM - 0.8, (pz + HZ) * PPM - 0.8, 1.6, 1.6);
+  }
+  texDirty = true;
+}
+
+function moveTo(d, tx, tz, vmax, vend, h, maxStep){
+  const dx = tx - d.x, dz = tz - d.z, dist = Math.hypot(dx, dz);
+  const v0 = d.v;
+  if (dist < 1e-4){ d.x = tx; d.z = tz; return true; }
+  const vt = Math.min(vmax, Math.sqrt(vend * vend + 2 * ACC * dist));
+  d.v = d.v < vt ? Math.min(vt, d.v + ACC * h) : Math.max(vt, d.v - ACC * 1.6 * h);
+  d.acc = (d.v - v0) / h;
+  d.hx = dx / dist; d.hz = dz / dist;
+  const step = Math.min(d.v * h, maxStep);
+  if (step >= dist){ d.x = tx; d.z = tz; return true; }
+  d.x += d.hx * step; d.z += d.hz * step; return false;
+}
+function vertical(d, h, target){
+  const rate = Math.abs(d.y - target) < 1.2 && target < 1.5 ? 0.8 : VZ;
+  if (Math.abs(target - d.y) <= rate * h){ d.y = target; return true; }
+  d.y += Math.sign(target - d.y) * rate * h; return false;
+}
+const drainRate = d => 100 / (780 - 300 * d.hopper / CAP);
+function lowBatt(d){
+  const dist = Math.hypot(d.x - d.pad.x, d.z - d.pad.z);
+  return d.batt <= (dist / TRANSIT + 25) * drainRate(d) + 12;
+}
+function goHome(d, off, reason){
+  d.resume = {x: d.x + off.x, z: d.z + off.z}; d.final = false; d.state = 'toBase'; d.reason = reason;
+}
+function workStep(d, h, D, off){
+  const w = d.WP[d.i];
+  const tx = w.x - off.x, tz = w.z - off.z;
+  let vmax = P.speed, need = 0;
+  d.flowLim = false;
+  if (w.seed){
+    need = P.rate * (P.vr ? rxAt(d.x + D.x, d.z + D.z) : 1) * Seff / 1e4;
+    const vflow = MAX_FLOW / need;
+    if (vflow < vmax){ vmax = vflow; d.flowLim = true; }
+  }
+  const x0 = d.x, z0 = d.z;
+  const arrived = moveTo(d, tx, tz, vmax, 0.8, h, w.seed ? d.hopper / need : Infinity);
+  const step = Math.hypot(d.x - x0, d.z - z0);
+  d.seeding = false;
+  if (w.seed && step > 0){
+    const m = Math.min(d.hopper, need * step);
+    d.hopper -= m; S.used += m;
+    S.deposited += deposit(x0, z0, d.x, d.z, need, D);
+    S.treated += step * Seff / 1e4;
+    paintSeeds(x0, z0, d.x, d.z, m, D);
+    d.seeding = true; d.need = need;
+  }
+  if (arrived){
+    d.i++;
+    if (d.i >= d.WP.length){ d.final = true; d.state = 'toBase'; d.reason = 'done'; }
+    return;
+  }
+  if (w.seed && d.hopper <= 1e-6){ d.hopper = 0; goHome(d, off, 'seed'); return; }
+  if (lowBatt(d)) goHome(d, off, 'batt');
+}
+function stepDrone(d, h, D, off){
+  if (d.state === 'idle' || d.state === 'done' || d.state === 'off') return;
+  if (d.state === 'wait'){ d.timer -= h; if (d.timer <= 0) d.state = 'climb'; return; }
+  if (d.state !== 'pad') d.batt = Math.max(0, d.batt - drainRate(d) * h);
+  switch (d.state){
+    case 'climb':
+      d.v = 0;
+      if (vertical(d, h, d.transitAlt)) d.state = 'ferry';
+      break;
+    case 'ferry': {
+      const tx = d.resume.x - off.x, tz = d.resume.z - off.z;
+      const dist = Math.hypot(tx - d.x, tz - d.z);
+      const atAlt = vertical(d, h, dist < 12 ? WORK_ALT : d.transitAlt);
+      const arrived = moveTo(d, tx, tz, TRANSIT, 0.5, h, Infinity);
+      if (arrived && atAlt && Math.abs(d.y - WORK_ALT) < 0.01) d.state = 'work';
+      else if (lowBatt(d)){ d.state = 'toBase'; d.reason = 'batt'; }
+      break;
+    }
+    case 'work':
+      vertical(d, h, WORK_ALT);
+      workStep(d, h, D, off);
+      break;
+    case 'toBase':
+      vertical(d, h, d.transitAlt);
+      if (moveTo(d, d.pad.x, d.pad.z, TRANSIT, 0.3, h, Infinity)){ d.state = 'land'; d.v = 0; }
+      break;
+    case 'land':
+      d.v = 0;
+      if (vertical(d, h, PAD_Y)){
+        if (d.final){ d.state = 'done'; }
+        else {
+          d.state = 'pad';
+          d.needRefill = d.hopper < CAP - 0.5; d.needSwap = d.batt < 60;
+          d.timer = Math.max(d.needRefill ? REFILL_T : 0, d.needSwap ? SWAP_T : 0, 2);
+          if (d.needRefill) S.refills++;
+          if (d.needSwap) S.swaps++;
+        }
+      }
+      break;
+    case 'pad':
+      d.timer -= h;
+      if (d.needRefill) d.hopper = Math.min(CAP, d.hopper + CAP / REFILL_T * h);
+      if (d.needSwap) d.batt = Math.min(100, d.batt + 100 / SWAP_T * h);
+      if (d.timer <= 0){ if (d.needRefill) d.hopper = CAP; if (d.needSwap) d.batt = 100; d.state = 'climb'; }
+      break;
+  }
+}
+
+// ---------- field statistics and overlays ----------
+function fieldStats(){
+  let seeded = 0, on = 0, under = 0, over = 0, sum = 0, sum2 = 0;
+  const rate = P.rate / 1e4;
+  for (let k = 0; k < NC; k++){
+    const r = dens[k] / (rate * (P.vr ? rx[k] : 1));
+    if (r >= 0.85) seeded++;
+    if (r < 0.85) under++; else if (r > 1.15) over++; else on++;
+    sum += r; sum2 += r * r;
+  }
+  const mean = sum / NC, sd = Math.sqrt(Math.max(0, sum2 / NC - mean * mean));
+  return {seeded: seeded / NC, on: on / NC, under: under / NC, over: over / NC, cv: mean > 0 ? sd / mean : 0};
+}
+let overlayMode = 'none', lastOverlay = 0;
+function refreshOverlay(force){
+  overlay.visible = overlayMode !== 'none' && mode === 'sim';
+  $('lg-cov').hidden = !(overlay.visible && overlayMode === 'cov');
+  $('lg-rx').hidden = !(overlay.visible && overlayMode === 'rx');
+  if (!overlay.visible) return;
+  const now = performance.now();
+  if (!force && now - lastOverlay < 250) return;
+  lastOverlay = now;
+  const img = ox.createImageData(CX, CZ), a = img.data, rate = P.rate / 1e4;
+  for (let k = 0; k < NC; k++){
+    let c;
+    if (overlayMode === 'rx') c = rx[k] > 1.1 ? [214, 92, 52, 150] : rx[k] < 0.9 ? [70, 150, 90, 140] : [231, 195, 80, 100];
+    else {
+      const r = dens[k] / (rate * (P.vr ? rx[k] : 1));
+      c = dens[k] <= 0 ? [0, 0, 0, 0] : r < 0.6 ? [205, 60, 45, 200] : r < 0.85 ? [232, 162, 58, 195] : r <= 1.15 ? [79, 160, 74, 185] : [60, 110, 210, 195];
+    }
+    a[k * 4] = c[0]; a[k * 4 + 1] = c[1]; a[k * 4 + 2] = c[2]; a[k * 4 + 3] = c[3];
+  }
+  ox.putImageData(img, 0, 0); ovTex.needsUpdate = true;
+}
+
+// ---------- growth ----------
+let sprouts = null, growT = 0;
+function grow(){
+  if (S.grown) return;
+  S.grown = true; $('grow').disabled = true; $('grow-note').hidden = false;
+  const rate = P.rate / 1e4, pts = [];
+  fx.lineWidth = 1.4;
+  for (let k = 0; k < NC; k++){
+    const r = dens[k] / (rate * (P.vr ? rx[k] : 1));
+    if (r < 0.1) continue;
+    const n = Math.round(Math.min(1.4, r) * 26), cx0 = (k % CX) * PPM, cz0 = Math.floor(k / CX) * PPM;
+    for (let q = 0; q < n; q++){
+      const u = cx0 + Math.random() * PPM, v = cz0 + Math.random() * PPM;
+      fx.strokeStyle = ['#6E9A40', '#557F34', '#47722A', '#7FA24C'][q % 4];
+      fx.beginPath(); fx.moveTo(u, v); fx.lineTo(u + (Math.random() - .5) * 3, v - 2 - Math.random() * 3); fx.stroke();
+    }
+    const m = Math.min(5, Math.round(r * 2.4 + Math.random() * 0.7));
+    for (let q = 0; q < m; q++) pts.push([(k % CX) - HX + Math.random(), Math.floor(k / CX) - HZ + Math.random()]);
+  }
+  fieldTex.needsUpdate = true;
+  const geo = new THREE.ConeGeometry(0.13, 0.34, 5); geo.translate(0, 0.17, 0);
+  sprouts = new THREE.InstancedMesh(geo, new THREE.MeshLambertMaterial({color:0xFFFFFF}), Math.max(1, pts.length));
+  const o = new THREE.Object3D(), col = new THREE.Color();
+  pts.forEach(([x, z], i) => {
+    o.position.set(x, 0, z); o.rotation.set((Math.random() - .5) * 0.4, Math.random() * 6, (Math.random() - .5) * 0.4);
+    o.scale.set(1, 0.6 + Math.random() * 0.9, 1); o.updateMatrix();
+    sprouts.setMatrixAt(i, o.matrix);
+    sprouts.setColorAt(i, col.setHSL(0.25 + Math.random() * 0.05, 0.5, 0.24 + Math.random() * 0.1).convertSRGBToLinear());
+  });
+  sprouts.count = pts.length;
+  sprouts.receiveShadow = true;
+  sprouts.scale.y = 0.01; growT = 0;
+  scene.add(sprouts);
+}
+
+// ---------- rotor sound (starts only when the viewer turns it on) ----------
+let audio = null, soundOn = false;
+function makeAudio(){
+  const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+  const ctx = new AC();
+  const master = ctx.createGain(); master.gain.value = 0; master.connect(ctx.destination);
+  const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), ch = buf.getChannelData(0);
+  let last = 0; for (let i = 0; i < len; i++){ const w = Math.random() * 2 - 1; last = (last + 0.02 * w) / 1.02; ch[i] = last * 3.5; }
+  const noise = ctx.createBufferSource(); noise.buffer = buf; noise.loop = true;
+  const nf = ctx.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 700;
+  const ng = ctx.createGain(); ng.gain.value = 0.7;
+  noise.connect(nf); nf.connect(ng); ng.connect(master);
+  const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 105;
+  const of = ctx.createBiquadFilter(); of.type = 'lowpass'; of.frequency.value = 420; of.Q.value = 3;
+  const og = ctx.createGain(); og.gain.value = 0.12;
+  const osc2 = ctx.createOscillator(); osc2.type = 'triangle'; osc2.frequency.value = 212;
+  const og2 = ctx.createGain(); og2.gain.value = 0.05;
+  osc.connect(of); of.connect(og); og.connect(master);
+  osc2.connect(og2); og2.connect(master);
+  noise.start(); osc.start(); osc2.start();
+  return {ctx, master, osc, osc2};
+}
+$('snd').onclick = () => {
+  try {
+    if (!audio) audio = makeAudio();
+    if (!audio){ $('snd').textContent = 'No sound'; $('snd').disabled = true; return; }
+    soundOn = !soundOn;
+    if (soundOn) audio.ctx.resume(); else audio.master.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.05);
+    $('snd').textContent = soundOn ? 'Sound on' : 'Sound off';
+    $('snd').classList.toggle('on', soundOn); $('snd').setAttribute('aria-pressed', soundOn);
+  } catch (e){ $('snd').textContent = 'No sound'; $('snd').disabled = true; }
+};
+
+// ---------- UI ----------
+let mode = 'model', camMode = 'orbit', sel = 0;
+const fmtTime = s => { s = Math.floor(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+const compass = deg => ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.round(deg / 45) % 8];
+function droneStatus(d){
+  const lanesOwned = d.WP.length / 2, lane = Math.min(lanesOwned, Math.floor(d.i / 2) + 1);
+  switch (d.state){
+    case 'idle': return ['', 'Ready on pad'];
+    case 'wait': return ['pad', `Waiting · takeoff in ${Math.ceil(d.timer)} s`];
+    case 'climb': return ['move', 'Taking off'];
+    case 'ferry': return ['move', 'Flying to lane'];
+    case 'work': return d.seeding ? ['seed', `Seeding lane ${lane} of ${lanesOwned}` + (d.flowLim ? ' · flow limit' : '')] : ['move', 'Turning to next lane'];
+    case 'toBase': return d.reason === 'done' ? ['rtl', 'Lanes done · returning'] : d.reason === 'batt' ? ['rtl', 'Low battery · returning'] : ['rtl', 'Hopper empty · returning'];
+    case 'land': return ['rtl', 'Landing'];
+    case 'pad': return ['pad', (d.needRefill && d.needSwap ? 'Refill and battery swap' : d.needRefill ? 'Refilling hopper' : 'Battery swap') + ` · ${Math.max(0, d.timer).toFixed(0)} s`];
+    case 'done': return ['done', 'Landed · lanes complete'];
+  }
+  return ['', ''];
+}
+function buildFleetChips(){
+  const el = $('fleet');
+  el.hidden = P.n < 2;
+  el.innerHTML = '';
+  for (let j = 0; j < P.n; j++){
+    const b = document.createElement('button');
+    b.innerHTML = `<span class="dot"></span>D${j + 1}`;
+    b.className = j === sel ? 'on' : '';
+    b.onclick = () => { sel = j; [...el.children].forEach((c, k) => c.classList.toggle('on', k === sel)); updateStats(true); };
+    el.appendChild(b);
+  }
+}
+function syncSimUI(){
+  const idle = drones.slice(0, P.n).every(d => d.state === 'idle');
+  $('swath').disabled = !idle;
+  document.querySelectorAll('#fleetsel button').forEach(b => b.disabled = !idle);
+  $('play').textContent = S.done ? 'Done' : running ? 'Pause' : (idle ? 'Start' : 'Resume');
+  $('play').disabled = S.done;
+  $('grow').disabled = S.grown || S.used === 0;
+}
+let lastStat = 0, cachedField = {seeded:0};
+function updateStats(force){
+  const now = performance.now();
+  if (!force && now - lastStat < 150) return;
+  lastStat = now;
+  cachedField = fieldStats();
+  const d = drones[sel];
+  const [s, txt] = droneStatus(d);
+  $('h-dot').dataset.s = s;
+  $('h-status').textContent = (P.n > 1 ? `D${sel + 1} · ` : '') + txt;
+  const grounded = ['idle', 'wait', 'pad', 'done'].includes(d.state);
+  $('h-alt').textContent = (grounded ? 0 : d.y).toFixed(1) + ' m';
+  $('h-spd').textContent = d.v.toFixed(1) + ' m/s';
+  const bat = $('h-bat'); bat.textContent = Math.round(d.batt) + '%'; bat.classList.toggle('warn', d.batt < 30);
+  const hop = $('h-hop'); hop.textContent = d.hopper.toFixed(1) + ' kg'; hop.classList.toggle('warn', d.hopper < 3);
+  $('h-gate').textContent = d.seeding ? Math.round(Math.min(1, d.need * d.v / MAX_FLOW) * 100) + '%' : 'closed';
+  const D = driftVec(), drift = Math.hypot(D.x, D.z);
+  $('h-wind').textContent = P.wind > 0 ? `Wind ${P.wind.toFixed(1)} m/s from ${compass(P.windFrom)} · drift ${drift.toFixed(1)} m` : 'Calm · no drift';
+  $('h-arrow').setAttribute('transform', `rotate(${(P.windFrom + 180) % 360})`);
+  [...$('fleet').children].forEach((c, k) => { c.firstChild.dataset.s = droneStatus(drones[k])[0]; });
+  $('st-cov').textContent = (cachedField.seeded * 100).toFixed(1) + '%';
+  $('st-area').textContent = S.treated.toFixed(2) + ' ha';
+  $('st-used').textContent = S.used.toFixed(1) + ' kg';
+  const lost = Math.max(0, S.used - S.deposited);
+  $('st-lost').innerHTML = lost.toFixed(1) + ' kg' + (S.used > 0.5 ? ` <small>${(lost / S.used * 100).toFixed(0)}%</small>` : '');
+  $('st-time').textContent = fmtTime(S.time);
+  $('st-rate').textContent = S.time > 10 ? (S.treated / (S.time / 3600)).toFixed(2) + ' ha/h' : '–';
+  $('st-ref').textContent = S.refills;
+  $('st-swap').textContent = S.swaps;
+  if (!S.grown) $('grow').disabled = S.used === 0;
+}
+function finish(){
+  running = false; S.done = true;
+  const f = fieldStats(), lost = Math.max(0, S.used - S.deposited), flat = P.rate * AREA_HA;
+  const hrs = S.time / 3600, rateHa = AREA_HA / hrs, manualH = AREA_HA / 0.3;
+  const rows = [
+    ['Mission time', fmtTime(S.time) + ` (${P.n} drone${P.n > 1 ? 's' : ''})`],
+    ['Work rate', rateHa.toFixed(2) + ' ha/h'],
+    ['Same field by hand', `≈ ${Math.floor(manualH)} h ${Math.round(manualH % 1 * 60)} min`],
+    ['Seed used', S.used.toFixed(1) + ' kg'],
+    ['Flat-rate plan would use', flat.toFixed(1) + ' kg'],
+    ['Lost outside the field', `${lost.toFixed(1)} kg (${(lost / S.used * 100).toFixed(1)}%)`],
+    ['Cells on target (±15%)', (f.on * 100).toFixed(0) + '%'],
+    ['Under / over target', `${(f.under * 100).toFixed(0)}% / ${(f.over * 100).toFixed(0)}%`],
+    ['Spread uniformity (CV)', (f.cv * 100).toFixed(0) + '%'],
+  ];
+  $('report-body').innerHTML = rows.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('');
+  $('report').hidden = false;
+  syncSimUI(); updateStats(true); refreshOverlay(true);
+}
+
+const camGoal = {
+  model: {pos: new V3(3.6, 3.0, 4.4), tgt: new V3(0, 1.7, 0)},
+  sim:   {pos: new V3(-82, 40, 76), tgt: new V3(-16, 0, 8)},
+};
+let camAnim = null;
+function animateCam(goal){ camAnim = {t:0, p0:camera.position.clone(), t0:controls.target.clone(), p1:goal.pos.clone(), t1:goal.tgt.clone()}; }
+function setFov(f){ if (camera.fov !== f){ camera.fov = f; camera.updateProjectionMatrix(); } }
+function setMode(m){
+  mode = m;
+  $('tab-model').classList.toggle('on', m === 'model'); $('tab-model').setAttribute('aria-selected', m === 'model');
+  $('tab-sim').classList.toggle('on', m === 'sim'); $('tab-sim').setAttribute('aria-selected', m === 'sim');
+  $('panel-model').hidden = m !== 'model';
+  $('panel-sim').hidden = m !== 'sim';
+  $('hud').hidden = m !== 'sim'; $('bar-cam').hidden = m !== 'sim'; $('ov').hidden = m !== 'sim';
+  $('hint').hidden = m !== 'model';
+  if (m === 'model'){ running = false; syncSimUI(); setCam('orbit', true); }
+  drones.forEach((d, j) => d.R.g.visible = m === 'model' ? j === 0 : j < P.n);
+  setFov(42);
+  if (!(m === 'sim' && camMode !== 'orbit')) animateCam(camGoal[m]);
+  refreshOverlay(true);
+  updateStats(true);
+}
+function setCam(c, silent){
+  camMode = c;
+  document.querySelectorAll('#cam button').forEach(b => b.classList.toggle('on', b.dataset.c === c));
+  controls.enabled = c === 'orbit';
+  setFov(c === 'fpv' ? 72 : 42);
+  if (c === 'orbit' && !silent && mode === 'sim') animateCam(camGoal.sim);
+}
+$('tab-model').onclick = () => setMode('model');
+$('tab-sim').onclick = () => setMode('sim');
+document.querySelectorAll('#cam button').forEach(b => b.onclick = () => setCam(b.dataset.c));
+document.querySelectorAll('#ov button').forEach(b => b.onclick = () => {
+  overlayMode = b.dataset.o;
+  document.querySelectorAll('#ov button').forEach(x => x.classList.toggle('on', x === b));
+  refreshOverlay(true);
+});
+document.querySelectorAll('#light button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#light button').forEach(x => x.classList.toggle('on', x === b));
+  applyLight(b.dataset.l);
+});
+
+$('play').onclick = () => {
+  if (S.done) return;
+  const act = drones.slice(0, P.n);
+  if (act.every(d => d.state === 'idle')) act.forEach((d, j) => { d.state = 'wait'; d.timer = j * 4; });
+  running = !running; syncSimUI(); updateStats(true);
+};
+$('reset').onclick = () => resetSim();
+document.querySelectorAll('#mult button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#mult button').forEach(x => x.classList.toggle('on', x === b));
+  P.mult = +b.dataset.m;
+});
+document.querySelectorAll('#fleetsel button').forEach(b => b.onclick = () => {
+  if (b.disabled) return;
+  document.querySelectorAll('#fleetsel button').forEach(x => x.classList.toggle('on', x === b));
+  P.n = +b.dataset.n; sel = 0;
+  resetSim();
+  drones.forEach((d, j) => d.R.g.visible = mode === 'model' ? j === 0 : j < P.n);
+});
+const bindRange = (id, key, fmt, onChange) => {
+  const el = $(id), out = $('o-' + id);
+  const upd = init => { P[key] = +el.value; out.textContent = fmt(+el.value); if (onChange && init !== true) onChange(); };
+  el.addEventListener('input', upd); upd(true);
+};
+bindRange('speed', 'speed', v => v + ' m/s');
+bindRange('swath', 'sw', v => v + ' m', () => { if (S.time === 0 && !running) resetSim(); });
+bindRange('rate', 'rate', v => v + ' kg/ha', () => refreshOverlay(true));
+bindRange('wind', 'wind', v => v + ' m/s', () => updateStats(true));
+bindRange('windfrom', 'windFrom', v => compass(v), () => updateStats(true));
+bindRange('fill', 'fill', v => v + ' kg');
+const bindCheck = (id, key, after) => { const el = $(id); el.onchange = () => { P[key] = el.checked; if (after) after(); }; P[key] = el.checked; };
+bindCheck('opt-vr', 'vr', () => refreshOverlay(true));
+bindCheck('opt-comp', 'comp');
+bindCheck('opt-defl', 'defl');
+bindCheck('opt-run', 'run');
+$('grow').onclick = grow;
+const optLabels = $('opt-labels'), optExplode = $('opt-explode'), optHi = $('opt-highlight');
+optHi.onchange = () => setHighlight(optHi.checked);
+
+// ---------- loop ----------
+function resize(){
+  const w = vp.clientWidth, h = vp.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(vp);
+resize();
+
+applyLight('day');
+resetSim();
+setHighlight(true);
+setMode('model');
+camAnim = null; camera.position.copy(camGoal.model.pos); controls.target.copy(camGoal.model.tgt);
+
+const clock = new THREE.Clock();
+let explode = 0, t = 0;
+const fwd = new V3(), look = new V3(), focus = new V3();
+
+function emitSeeds(d, n, D, hovering){
+  const R = d.R; R.disc.getWorldPosition(tmpV);
+  const ux = hovering ? 0 : Math.sin(d.R.g.rotation.y), uz = hovering ? 0 : Math.cos(d.R.g.rotation.y);
+  const nx = -uz, nz = ux, T = (0.4 + Math.sqrt(0.16 + 2 * G * Math.max(0.3, tmpV.y))) / G;
+  const W = windVec();
+  const cz = P.comp ? D.z : 0, Bhi = HZ - cz, Blo = -HZ - cz;
+  for (let k = 0; k < n; k++){
+    let px, pz;
+    if (hovering){ const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * 4; px = tmpV.x + Math.cos(a) * r; pz = tmpV.z + Math.sin(a) * r; }
+    else {
+      const l = (Math.random() + Math.random() - 1) * Seff, al = (Math.random() - .5) * 1.4;
+      px = tmpV.x + nx * l + ux * al; pz = tmpV.z + nz * l + uz * al;
+      if (P.defl){ if (pz > Bhi) pz = 2 * Bhi - pz; else if (pz < Blo) pz = 2 * Blo - pz; }
+    }
+    spawn(seeds, tmpV.x, tmpV.y, tmpV.z, (px - tmpV.x) / T + W.x * 0.82, 0.4, (pz - tmpV.z) / T + W.z * 0.82, 2);
+  }
+}
+function emitDust(x, z, ground, alt, n){
+  const strength = Math.max(0, 1 - alt / 2.6);
+  for (let k = 0; k < n * strength; k++){
+    const a = Math.random() * Math.PI * 2, r = 0.3 + Math.random() * 1.1, s = 2 + Math.random() * 3;
+    spawn(dust, x + Math.cos(a) * r, ground + 0.1, z + Math.sin(a) * r, Math.cos(a) * s, 0.25 + Math.random() * 0.5, Math.sin(a) * s, 0.8 + Math.random() * 0.8);
+  }
+}
+// tilt the airframe: lean into the wind to hold position, and forward with speed and acceleration
+function applyTilt(g, tx, tz, dt){
+  const yaw = g.rotation.y, fx_ = Math.sin(yaw), fz_ = Math.cos(yaw), rx_ = -Math.cos(yaw), rz_ = Math.sin(yaw);
+  const pitch = THREE.MathUtils.clamp(tx * fx_ + tz * fz_, -0.25, 0.25), roll = THREE.MathUtils.clamp(tx * rx_ + tz * rz_, -0.25, 0.25);
+  const k = Math.min(1, dt * 5);
+  g.rotation.x += (pitch - g.rotation.x) * k; g.rotation.z += (roll - g.rotation.z) * k;
+}
+
+function frame(){
+  requestAnimationFrame(frame);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  t += dt;
+  const D = driftVec(), off = P.comp ? D : {x:0, z:0};
+  const W = windVec(), gu = gust(t);
+
+  // simulation
+  if (mode === 'sim' && running){
+    let rem = dt * P.mult;
+    const act = drones.slice(0, P.n);
+    while (rem > 1e-6){
+      const h = Math.min(0.05, rem); rem -= h; S.time += h;
+      act.forEach(d => stepDrone(d, h, D, off));
+      if (act.every(d => d.state === 'done')){ finish(); break; }
+    }
+  }
+  if (texDirty){ fieldTex.needsUpdate = true; texDirty = false; }
+
+  // windsock and clouds
+  if (P.wind > 0.1) sockPivot.rotation.y = Math.atan2(W.x, W.z) + Math.sin(t * 1.3) * 0.08 * Math.min(1, P.wind / 3);
+  sockPivot.rotation.x = (1 - Math.min(1, P.wind * gu / 6)) * 1.3 + Math.sin(t * 7) * 0.04 * Math.min(1, P.wind / 3);
+  clouds.forEach(c => { c.position.x += W.x * dt * 0.6; c.position.z += W.z * dt * 0.6; });
+
+  // drones
+  const strobeOn = (t % 1.3) < 0.07;
+  const simDt = running ? dt * Math.min(P.mult, 3) : 0;
+  let loud = 0, pitchHz = 100;
+  drones.forEach((d, j) => {
+    const R = d.R, g = R.g;
+    if (!g.visible) return;
+    R.strobe.visible = strobeOn;
+    let spinning, seedingNow = false, hopperLevel;
+    const lean = 0.02 * P.wind * gu;
+    if (mode === 'model'){
+      spinning = true;
+      g.position.lerp(tmpV.set(Math.sin(t * 0.7) * 0.04, 1.7 + Math.sin(t * 1.6) * 0.03, Math.cos(t * 0.9) * 0.04), 0.12);
+      g.rotation.y += (0 - g.rotation.y) * 0.08;
+      applyTilt(g, -W.x / Math.max(P.wind, 0.01) * lean + Math.sin(t * 2.1) * 0.006, -W.z / Math.max(P.wind, 0.01) * lean, dt);
+      hopperLevel = P.fill / CAP;
+      seedingNow = P.run && P.fill > 0;
+    } else {
+      spinning = !['idle', 'wait', 'pad', 'done', 'off'].includes(d.state);
+      const airborne = d.y > PAD_Y + 0.02;
+      const bob = airborne ? Math.sin(t * 1.8 + j) * 0.03 + Math.sin(t * 4.3 + j) * 0.01 * gu : 0;
+      g.position.set(d.x, d.y + bob, d.z);
+      if (d.v > 0.3){
+        const target = Math.atan2(d.hx, d.hz);
+        let dy = target - g.rotation.y; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+        g.rotation.y += dy * Math.min(1, dt * 3 * Math.min(P.mult, 4));
+      }
+      if (airborne){
+        const mv = running ? 0.022 * d.v + 0.04 * d.acc : 0;
+        const wl = P.wind > 0.01 ? lean / P.wind : 0;
+        applyTilt(g, d.hx * mv - W.x * wl, d.hz * mv - W.z * wl, dt);
+      } else applyTilt(g, 0, 0, dt);
+      hopperLevel = d.hopper / CAP;
+      seedingNow = running && d.seeding;
+      // border deflector swings to the field-edge side on outer lanes
+      const cz = P.comp ? D.z : 0;
+      const nearHi = HZ - cz - d.z < Seff, nearLo = d.z + HZ + cz < Seff;
+      const active = P.defl && d.state === 'work' && (nearHi || nearLo);
+      const local = active ? (nearHi ? 0 : Math.PI) - g.rotation.y : Math.PI;
+      let da = local - d.deflAng; da = Math.atan2(Math.sin(da), Math.cos(da));
+      d.deflAng += da * Math.min(1, dt * 5);
+      R.defl.rotation.y = d.deflAng;
+      if (spinning && running){
+        const overPad = Math.hypot(d.x - d.pad.x, d.z - d.pad.z) < 3;
+        const ground = overPad ? 0.1 : 0;
+        emitDust(d.x, d.z, ground, d.y - ground - 0.85, d.y < 2.2 ? 6 : 2);
+      }
+    }
+    if (mode === 'model') R.defl.rotation.y = Math.PI / 2;
+    setFill(R, hopperLevel);
+    R.spin += ((spinning ? 1 : 0) - R.spin) * Math.min(1, dt * 1.6);
+    const fast = R.spin > 0.55;
+    R.props.forEach((p, k) => { p.rotation.y += R.spin * (fast ? 9 : 40) * dt * (k % 2 ? 1 : -1); });
+    R.blades.forEach(b => b.visible = !fast);
+    R.blurMat.opacity = fast ? 0.85 : R.spin * 0.6;
+    R.blurs.forEach(b => b.visible = R.spin > 0.05);
+    if (seedingNow || (mode === 'model' && P.run)) R.disc.rotation.y += (seedingNow ? 32 : 4) * dt;
+    if (seedingNow){
+      const n = mode === 'model' ? 5 : Math.min(26, 5 + Math.round(5 * Math.min(P.mult, 5) * (d.need || 0.04) / 0.04));
+      emitSeeds(d, n, D, mode === 'model');
+    }
+    if (mode === 'model' && Math.random() < 0.7) emitDust(g.position.x, g.position.z, 0, 0.85, 3);
+    if (R.spin > 0.05){
+      const dist2 = camera.position.distanceToSquared(g.position);
+      const l = R.spin / (1 + dist2 / 25);
+      if (l > loud){ loud = l; pitchHz = 92 + 18 * R.spin + (mode === 'sim' ? Math.abs(d.acc) * 4 + d.v * 1.2 : 6); }
+    }
+  });
+  stepSeeds(mode === 'model' ? dt : simDt);
+  stepDust(mode === 'model' ? dt : (running ? dt : 0), W);
+  if (audio && soundOn){
+    const now = audio.ctx.currentTime;
+    audio.master.gain.setTargetAtTime(Math.min(0.5, loud * 0.55), now, 0.15);
+    audio.osc.frequency.setTargetAtTime(pitchHz, now, 0.2);
+    audio.osc2.frequency.setTargetAtTime(pitchHz * 2.02, now, 0.2);
+  }
+
+  // exploded view (model)
+  const exGoal = mode === 'model' && optExplode.checked ? 1 : 0;
+  explode += (exGoal - explode) * Math.min(1, dt * 5);
+  R0.hopper.position.y = HOP.y + explode * 0.65;
+  R0.feed.position.y = -explode * 0.22;
+  R0.spinner.position.y = -0.63 - explode * 0.55;
+
+  // growth animation
+  if (sprouts && growT < 1){
+    growT = Math.min(1, growT + dt / (reduceMotion ? 0.01 : 2.4));
+    sprouts.scale.y = Math.max(0.01, 1 - Math.pow(1 - growT, 3));
+  }
+
+  // camera
+  const d = drones[sel];
+  if (camAnim){
+    camAnim.t = Math.min(1, camAnim.t + dt / (reduceMotion ? 0.01 : 1.1));
+    const e = camAnim.t < .5 ? 2 * camAnim.t * camAnim.t : 1 - Math.pow(-2 * camAnim.t + 2, 2) / 2;
+    camera.position.lerpVectors(camAnim.p0, camAnim.p1, e);
+    controls.target.lerpVectors(camAnim.t0, camAnim.t1, e);
+    camera.lookAt(controls.target);
+    if (camAnim.t >= 1) camAnim = null;
+  } else if (mode === 'sim' && camMode !== 'orbit'){
+    const g = d.R.g;
+    fwd.set(Math.sin(g.rotation.y), 0, Math.cos(g.rotation.y));
+    if (camMode === 'chase'){
+      tmpV.copy(g.position).addScaledVector(fwd, -8.5); tmpV.y += 3.4;
+      camera.position.lerp(tmpV, 1 - Math.exp(-dt * 4));
+      look.copy(g.position).addScaledVector(fwd, 3); camera.lookAt(look);
+    } else if (camMode === 'fpv'){
+      d.R.fpv.getWorldPosition(tmpV); camera.position.copy(tmpV);
+      look.copy(tmpV).addScaledVector(fwd, 10); look.y -= 4.2;
+      look.x += Math.sin(t * 9) * 0.03 * gu; look.y += Math.sin(t * 13) * 0.02;
+      camera.lookAt(look);
+    } else {
+      camera.position.lerp(tmpV2.set(-6, 118, 30), 1 - Math.exp(-dt * 4));
+      camera.lookAt(-6, 0, 2);
+    }
+  }
+  if (controls.enabled && !camAnim) controls.update();
+
+  // keep shadows sharp where the viewer is looking
+  if (mode === 'model') shadowFocus(drones[0].R.g.position, 5);
+  else if (camMode === 'chase' || camMode === 'fpv') shadowFocus(focus.copy(d.R.g.position).setY(0), 26);
+  else if (camMode === 'top') shadowFocus(focus.set(-6, 0, 0), 72);
+  else shadowFocus(focus.copy(controls.target).setY(0), Math.min(80, Math.max(12, camera.position.distanceTo(controls.target) * 0.7)));
+
+  renderer.render(scene, camera);
+  updateLabels(mode === 'model' && optLabels.checked && !camAnim);
+  if (mode === 'sim'){ updateStats(false); refreshOverlay(false); }
+}
+frame();
+})();
+</script>
+
+</body>
+</html>
